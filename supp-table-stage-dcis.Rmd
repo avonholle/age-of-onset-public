@@ -1,0 +1,508 @@
+---
+title: "Make table for IJE referee comment received 6/1/2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r, include=FALSE}
+
+knitr::opts_chunk$set(echo = F,
+                      eval = T, # change to T if you want to re-run w/ new data
+                      results = 'none',
+                      include=F,
+                      warning = F,
+                      tidy.opts=list(width.cutoff=80),
+                      tidy=F)
+
+#runif(1, 0, 10^8)
+set.seed(74268794)
+```
+
+
+```{r, include=F, eval=T}
+# bring in packages
+require(knitr)
+require(haven)
+require(survival)
+require(data.table)
+require(tableone)
+require(ggplot2)
+require(stargazer)
+library(dplyr)
+library(npmlreg)
+library(kableExtra)
+library(starpolishr)
+library(stargazer)
+require(splines)
+library(popbio)
+require(hexbin)
+require(kableExtra)
+require(DescTools)
+library(tidyverse)
+
+```
+
+
+
+
+```{r}
+## Code 
+
+### Data prep
+
+# load data from data-handling.Rmd
+load(file="updated-data.RData") 
+load( file="ids-include.RData") ## psid.include
+load(file="older-info.RData") # older.proband.info (has older.proband2 variable)
+
+# yrs since first dx of bc
+sis.years = c("SX_SisBCYrs01",
+                    "SX_SisBCYrs02",
+                    "SX_SisBCYrs03",
+                    "SX_SisBCYrs04",
+                    "SX_SisBCYrs05",
+                    "SX_SisBCYrs06",
+                    "SX_SisBCYrs07",
+                    "SX_SisBCYrs08",
+                    "SX_SisBCYrs09",
+                    "SX_SisBCYrs10")
+
+add2 = add1[add1$PSID %in% psid.include, c('PSID', 'FU_BCInvD_Event',
+                                           'PG_MenarcheAge', 'PG_AgeFirstLiveBirth', 'HR_Menopause', 
+                                           'EX_BMI_final',
+                                           'BCSisterOlder',
+                                           'AgeExact_Baseline',
+                                           'FU_BCInvD_EOFAgeExact',
+                                           'FU_BCInvD_EOFAge',
+                                           'HH_PSID', sis.years,
+                                           'PG_MenarcheAge', 
+                                           'PG_AgeFirstLiveBirth',
+                                           'HR_Menopause',
+                                           'EX_BMI_final',
+                                           'FU_BCInvD_MenopauseAge',
+                                           'FU_BCInvD_DxAgeExactMin',
+                                           'FU_BCInvD_DxAgeExactMax',
+                                           'FU_BCInvD_DxType',
+                                           'age.firstbirth.cat',
+                                           'postmeno',
+                                           'fu.meno.age',
+                                           'bmi.ctr',
+                                           'p.age.decade',
+                                           'age.proband',
+                                           'age0', 'age1', 'futime',
+                                           'FU_BCInvD_DxStage_Simplified'
+                                           )]
+dim(add2) 
+
+colnames(add2)
+names.vars = c('PSID', "event", "age.menarche", "age.firstbirth", "menop.status", "bmi", "BCSisterOlder",
+               'baseline.age', 'FU_BCInvD_EOFAgeExact',
+               'FU_BCInvD_EOFAge', 'HH_PSID', sis.years,
+               "age.menarche", "age.firstbirth", "menop.status", "bmi",
+               'fu.meno.age','FU_BCInvD_DxAgeExactMin',
+                                           'FU_BCInvD_DxAgeExactMax', 'dxtype',
+                                           'age.firstbirth.cat',
+                                           'postmeno',
+                                           'fu.meno.age',
+                                           'bmi.ctr',
+                                           'p.age.decade',
+                                           'age.proband',
+                                           'age0', 'age1', 'futime',
+               'stage')
+colnames(add2) = names.vars
+colnames(add2)
+add2 = data.frame(add2)
+
+table(add2$stage)
+
+# add older proband variable from data-handling.Rmd
+add2 = merge(add2, older.proband.info, by="PSID")
+summary(add2)
+dim(add2) 
+
+# Subset data into older proband ============================
+df.both=add2
+table(df.both$older.)
+df.older = df.both[which(df.both$older.proband==1),]
+dim(df.older) 
+
+# Only take cases =====================
+df.both.cases = df.older[df.older$event==1,]
+dim(df.both.cases) 
+
+# Create a dcis vs invasive dxtype based on FU_BCInvD_DxType ================
+table(df.both.cases$dxtype)
+
+df.both.cases = within(df.both.cases, {
+  dxtype2 = cut(dxtype, c(12,19.9,28.8,41), include.lowest = T) # see values in next chunk
+})
+
+with(df.both.cases, table(dxtype,dxtype2)) # check
+
+df.both.cases = within (df.both.cases, {
+  dxtype2 = factor(dxtype2, labels=c("Invasive",
+                                     "InSitu",
+                                     "Unknown"))
+})
+
+
+# treat unknown as missing
+
+df.both.cases = within (df.both.cases, {
+  dxtype3 = ifelse(dxtype2=="Unknown", NA, dxtype2)
+  dxtype3 = factor(dxtype3, labels=c("Invasive",
+                                     "InSitu"))
+  dxtype3 = relevel(dxtype3, ref="Invasive")  # make invasive as referent and insitu as index
+  
+  stage.cat = ifelse(stage %in% (0), "0",
+                     ifelse(stage %in% c("I", "IA", "IB"), "I",
+                            ifelse(stage %in% c("II", "IIA", "IIB"), "II",
+                                   ifelse(stage %in% c("III", "IIIA", "IIIB", "IIIC"), "III",
+                                          ifelse(stage %in% c("IV"), "IV",
+                                                 ifelse(stage %in% c("X"), "X", NA))))))
+})
+
+# stage x is "cannot stage". Assuming different from unknown or missing.
+table(df.both.cases$stage)
+table(df.both.cases$stage.cat)
+
+
+sx = with(df.both.cases, table(stage.cat,dxtype3,exclude=NULL)) # check
+addmargins(sx)
+
+```
+
+
+
+```{r, results='markup'}
+
+### Frequencies of participants by type of diagnosis
+
+x = with(df.both.cases, table(dxtype,dxtype3)) # check
+addmargins(x)
+
+```
+
+
+```{r}
+
+### SAS formats for diagnosis types
+
+# |START           |END             |LABEL  20JUN2018:10:52:49)           
+# |--- | --- | ---
+# |              12|              12|12) Invasive - Ductal
+# |              13|              13|13) Invasive - Lobular
+# |              14|              14|14) Invasive - Ductal/Lobular or Mixed
+# |            18.1|            18.1|18.1) Invasive - Other - Inflammatory
+# |            18.2|            18.2|18.2) Invasive - Other - Paget's disease
+# |            18.3|            18.3|18.3) Invasive - Other - Phyllodes tumor
+# |            18.8|            18.8|18.8) Invasive - Other - NOS
+# |              19|              19|19) Invasive - Unknown
+# |            19.9|            19.9|19.9) Invasive (presumed) - In situ tumo
+# |            20.1|            20.1|20.1) Invasive (presumed) - In situ tumo
+# |              22|              22|22) In Situ - Ductal
+# |              23|              23|23) In Situ - Lobular
+# |              24|              24|24) In Situ - Ductal/Lobular
+# |            28.2|            28.2|28.2) In Situ - Other - Paget's disease
+# |            28.3|            28.3|28.3) In Situ - Other - Phyllodes tumor
+# |            28.8|            28.8|28.8) In Situ - Other - NOS
+# |              29|              29|29) In Situ - Unknown
+# |              32|              32|32) Invasiveness Unk - Ductal
+# |              33|              33|33) Invasiveness Unk - Lobular
+# |              34|              34|34) Invasiveness Unk - Ductal/Lobular
+# |            38.2|            38.2|38.2) Invasiveness Unk - Other -Paget's
+# |            38.3|            38.3|38.3) Invasiveness Unk - Other -Phyllod
+# |            38.8|            38.8|38.8) Invasiveness Unk - Other - NOS
+# |              39|              39|39) Invasiveness Unk - Unknown
+# |              41|              41|41) Uncertain Behavior - Ductal
+# |---
+
+```
+
+
+
+```{r}
+# make extra variables for analysis to estimate odds of age of onset variable by type of cancer (DCIS vs invasive)
+
+df.both.cases = within(df.both.cases, {
+
+  exp.diff = exp(-0.05*abs(age1-age.proband))
+  
+  diff = age1-age.proband
+  
+  close.5 = ifelse(abs(diff)<5,1,0)
+  close.2 = ifelse(abs(diff)<2,1,0)
+  
+  diff.sq = 0.01*diff^2
+
+})
+
+summary(df.both.cases[c("diff","close.5", "close.2", "diff.sq")])
+quantile(df.both.cases$diff, c(0.95))
+
+```
+
+## DCIS and invasive diagnoses by deciles of $\lvert a-a_d \rvert$ values
+
+
+```{r}
+### Trend test
+
+df10 = df.both.cases[abs(df.both.cases$diff)<=10,]
+summary(df10$diff)
+
+df10$diff.year <- with(df10, cut(abs(diff), breaks=c(seq(0,10,1)),
+                                 include.lowest=TRUE))
+
+table(df10$diff.year) # check
+head(df10)
+
+t1 = dcast(df10, diff.year ~ dxtype3, fun=length, value.var="dxtype3")
+
+t1. = t1[,1:3] # remove missing column
+t1.
+
+t1. = within(t1., {
+  
+  # probabilities
+  prob.insitu = InSitu / (InSitu+Invasive)
+  prob.inv = 1-prob.insitu
+  
+  # odds
+  odds.insitu = prob.insitu/(1-prob.insitu)
+  odds.inv = prob.inv / (1-prob.inv)
+  
+  or = odds.insitu/odds.inv
+  })
+
+t1. # check
+
+# see https://tex.stackexchange.com/questions/23473/how-to-escape-in-a-descriptions-item-tag/23476#23476 and
+# https://github.com/yihui/knitr/issues/1182
+
+t1.$diff.year2 = gsub('[', '{[}', t1.$diff.year, fixed = TRUE)
+t1.$diff.year2 = gsub(']', '{]}', t1.$diff.year2, fixed = TRUE)
+
+t1.
+
+```
+
+
+```{r}
+
+counts = t1.[c("Invasive", "InSitu")]
+
+CochranArmitageTest(counts, "two.sided")
+
+test.vals.1 = CochranArmitageTest(counts, "two.sided")
+test.vals.1
+class(test.vals.1)
+names(test.vals.1)
+test.vals.1$p.value
+
+```
+
+
+**Note**: These analyses exclude any participant with age of onset 10 years greater than proband.
+
+
+```{r, results="asis", eval=T, include=T}
+
+### Table
+kable(t1.[c("diff.year2", "Invasive", "InSitu", "prob.inv", "prob.insitu")],
+      booktabs=T,
+      escape=F,
+      format="latex",
+      col.names = c("$\\lvert a-a_d \\rvert^a$", rep(c("Invasive", "In Situ"), 2)),
+      digits=2) %>%
+  kable_styling(full_width = F) %>%
+#  column_spec(1:5, width = "5em") %>%
+  add_header_above(c(" "=1, "Frequencies$^b$" = 2, "Proportion" = 2), escape=F) %>%
+  footnote(alphabet = c("$a_d$ is age of diagnosis for probands and $a$ is the time scale in participant chronological age.",
+                        paste0("Cochran Armitage trend test p-value = ", round(test.vals.1$p.value,2))),
+           escape=F,
+           threeparttable = T)
+
+```
+
+```{r, include=T}
+
+# source: https://stackoverflow.com/questions/46847652/ggplot2-plot-correct-proportions-using-geom-bar
+
+
+df10[complete.cases(df10$dxtype3),c("dxtype3", "diff.year")] %>%
+  count(diff.year, dxtype3) %>% 
+  group_by(diff.year) %>% 
+   mutate(Sum=sum(n)) %>% 
+   mutate(proportion = n/Sum) %>% 
+   ggplot(aes(y=proportion, x=diff.year, fill=dxtype3)) +
+   geom_col(position = "dodge") +
+  scale_fill_manual(name="Diagnosis Type", 
+                    values=c("#999999", "#E69F00")) +
+  xlab(expression(a - a[d])) +
+  theme_bw()
+
+```
+
+
+
+```{r, fig.keep='last'}
+### Histogram of difference, $a_i - a_d$
+
+hist(df.both.cases$diff, 
+     main=expression(paste("Histogram of |", a - a[d], "|" )),
+     xlab="Difference",
+     ylab="Frequency")
+
+```
+
+
+## Breast cancer stages by deciles of $\lvert a-a_d \rvert$ values
+
+
+
+```{r}
+
+head(df10$stage.cat)
+dt10 = data.table(df10)
+
+t2 = dcast(dt10, diff.year ~ stage.cat, fun=length, value.var="stage.cat")
+t2
+
+t2. = t2[,c(1,3:7)] # remove missing column
+t2.
+
+t2. = within(t2., {
+  
+  # probabilities
+  prob.0 = `0` / (`0` + I + II + III + IV)
+  prob.I = I / (`0` + I + II + III + IV)
+  prob.II = II / (`0` + I + II + III + IV)
+  prob.III = III / (`0` + I + II + III + IV)
+  prob.IV = IV / (`0` + I + II + III + IV)
+
+  })
+
+t2. # check
+
+# see https://tex.stackexchange.com/questions/23473/how-to-escape-in-a-descriptions-item-tag/23476#23476 and
+# https://github.com/yihui/knitr/issues/1182
+
+t2.$diff.year2 = gsub('[', '{[}', t2.$diff.year, fixed = TRUE)
+t2.$diff.year2 = gsub(']', '{]}', t2.$diff.year2, fixed = TRUE)
+
+t2.
+
+```
+
+
+
+
+```{r, include=T}
+
+## Trend test
+
+### Stages 0 and 1
+
+counts2.1 = t2.[,c("0", "I")]
+val2.1 = CochranArmitageTest(counts2.1, "two.sided")
+
+```
+
+
+```{r, include=T}
+
+### Stages 0 and 2
+
+counts2.2 = t2.[,c("0", "II")]
+val2.2 = CochranArmitageTest(counts2.2, "two.sided")
+
+```
+
+
+
+```{r, include=T}
+
+### Stages 0 and 3
+
+counts2.3 = t2.[,c("0", "III")]
+val2.3 = CochranArmitageTest(counts2.3, "two.sided")
+
+```
+
+
+
+```{r, include=T}
+
+### Stages 0 and 4
+
+counts2.4 = t2.[,c("0", "IV")]
+val2.4 = CochranArmitageTest(counts2.4, "two.sided")
+
+```
+
+```{r}
+# get missing or cannot stage
+# how many missing stages?
+table(dt10$stage.cat, exclude=NULL)
+
+miss.stage = sum(is.na(dt10$stage.cat))
+cannot.stage = sum(dt10$stage.cat=="X", na.rm=T)
+```
+
+
+```{r}
+
+save(t1., t2., test.vals.1, val2.1, val2.2, val2.3, val2.4, miss.stage, cannot.stage, file="supp1.RData")
+
+```
+
+```{r, results="asis", eval=T, include=T}
+
+kable(t2.[,c("diff.year2", "0", "I", "II", "III", "IV", "prob.0", "prob.I", "prob.II", "prob.III", "prob.IV")],
+      booktabs=T,
+      escape=F,
+      format="latex",
+      col.names = c("$\\lvert a-a_d \\rvert^a$", rep(c("0", "I", "II", "III", "IV"), 2)),
+      digits=2) %>%
+  kable_styling(full_width = F) %>%
+#  column_spec(1:5, width = "5em") %>%
+  add_header_above(c(" "=1, "Frequencies$^b$" = 5, "Probability" = 5), escape=F) %>%
+  footnote(alphabet = c("$a_d$ is age at diagnosis for probands and $a$ is the time scale in participant chronological age.",
+                        paste0("Cochran Armitage trend test p-values for stage 0 vs I (",
+                               round(val2.1$p.value, 2), ")",
+                               ", vs II (", round(val2.2$p.value, 2), ")",
+                               ", vs III (", round(val2.3$p.value, 2), ")",
+                               ", vs IV (", round(val2.4$p.value, 2), ")")),
+           general = c(paste0(miss.stage, " are missing stage, and ", cannot.stage, " cases were stage X (cannot stage)")),
+           escape=F,
+           threeparttable = T)
+
+```
+
+```{r, include=T}
+
+# source: http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+# source: https://stackoverflow.com/questions/46847652/ggplot2-plot-correct-proportions-using-geom-bar
+
+df10[complete.cases(df10$stage.cat), c("stage.cat", "diff.year")] %>%
+  count(diff.year, stage.cat) %>% 
+  group_by(diff.year) %>% 
+   mutate(Sum=sum(n)) %>% 
+   mutate(proportion = n/Sum) %>% 
+   ggplot(aes(y=proportion, x=diff.year, fill=stage.cat)) +
+   geom_col(position = "dodge") +
+  scale_fill_manual(name="Diagnosis Type", 
+                    values=cbbPalette) +
+  xlab(expression(a - a[d])) +
+  theme_bw()
+
+```
+

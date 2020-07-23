@@ -1,0 +1,734 @@
+---
+title: "Data handling for age-of-onset project. Select sample."
+output: pdf_document
+editor_options:
+  chunk_output_type: console
+toc_depth: 3
+---
+
+
+```{r, include=F}
+set.seed(74268794) #  random seed 
+```
+
+<!-- Adapted from data-handling-redo.Rmd -->
+
+```{r setup-handle, include=FALSE}
+knitr::opts_chunk$set(echo = T, 
+                      eval = T,
+                      results = 'markup',
+                      warning = F)
+```
+
+
+```{r, include=F}
+# bring in packages
+require(knitr)
+require(haven)
+require(survival)
+require(data.table)
+require(tableone)
+require(ggplot2)
+require(stargazer)
+library(kableExtra)
+require(dplyr)
+require("DiagrammeR")
+
+```
+
+
+
+## Data handling for sample
+
+
+```{r, eval=F}
+# only run if new data -- takes some extra time
+
+add1 = read_sas("../../Sister Study/data/dr00194_03_01/dr00194_03_01.sas7bdat", 
+                 catalog_encoding = "../../Sister Study/formats-subset/sisformats.sas7bcat")
+# Need to subset the SAS formats for it to work in  R. See SAS-to-R-format-issues.Rmd
+dim(add1)
+save(add1, file="orig-data.RData")
+
+
+```
+
+
+```{r}
+
+load(file="orig-data.RData") # load add1 data frame
+dim(add1) # 50,884
+
+```
+
+
+
+```{r}
+
+sis.bc = c('SX_SisBC01',
+          'SX_SisBC02',
+          'SX_SisBC03',
+          'SX_SisBC04',
+          'SX_SisBC05',
+          'SX_SisBC06',
+          'SX_SisBC07',
+          'SX_SisBC08',
+          'SX_SisBC09',
+          'SX_SisBC10',
+          'SX_SisBC11',
+          'SX_SisBC12',
+          'SX_SisBC13')
+
+
+sis.count.vars2 = c("SX_SisBCMinAge01",
+                   "SX_SisBCMinAge02",
+                   "SX_SisBCMinAge03",
+                   "SX_SisBCMinAge04",
+                   "SX_SisBCMinAge05",
+                   "SX_SisBCMinAge06",
+                   "SX_SisBCMinAge07",
+                   "SX_SisBCMinAge08",
+                   "SX_SisBCMinAge09",
+                   "SX_SisBCMinAge10",
+                   "SX_SisBCMinAge11",
+                   "SX_SisBCMinAge12",
+                   "SX_SisBCMinAge13")
+
+sis.count.vars3 = c("SX_SisType01",
+                   "SX_SisType02",
+                   "SX_SisType03",
+                   "SX_SisType04",
+                   "SX_SisType05",
+                   "SX_SisType06",
+                   "SX_SisType07",
+                   "SX_SisType08",
+                   "SX_SisType09",
+                   "SX_SisType10",
+                   "SX_SisType11",
+                   "SX_SisType12",
+                   "SX_SisType13")
+
+sis.count.vars4 = c("SX_SisBCYrs01",
+                    "SX_SisBCYrs02",
+                    "SX_SisBCYrs03",
+                    "SX_SisBCYrs04",
+                    "SX_SisBCYrs05",
+                    "SX_SisBCYrs06",
+                    "SX_SisBCYrs07",
+                    "SX_SisBCYrs08",
+                    "SX_SisBCYrs09",
+                    "SX_SisBCYrs10",
+                    "SX_SisBCYrs11",
+                    "SX_SisBCYrs12",
+                    "SX_SisBCYrs13")
+
+sis.older = c(  'SX_SisPPTage01',
+                'SX_SisPPTage02',
+                'SX_SisPPTage03',
+                'SX_SisPPTage04',
+                'SX_SisPPTage05',
+                'SX_SisPPTage06',
+                'SX_SisPPTage07',
+                'SX_SisPPTage08',
+                'SX_SisPPTage09',
+                'SX_SisPPTage10',
+                'SX_SisPPTage11',
+                'SX_SisPPTage12',
+                'SX_SisPPTage13')
+
+
+# see https://stackoverflow.com/questions/7963898/extracting-the-last-n-characters-from-a-string-in-r/7963963
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+
+```
+
+```{r, results='hide'}
+add1$FU_BCInvD_Event.tagged = print_tagged_na(add1$FU_BCInvD_Event)
+```
+
+```{r}
+attributes(add1$FU_BCInvD_Event)
+
+# get the missing formats so I can exclude
+# see haven documentation, vignette("semantics") for more info
+table(add1$FU_BCInvD_Event.tagged)
+```
+
+### Remove participants who withdrew (n=3) or for other reasons are missing event status (n=63). Total (n=65)
+
+For missing tags in SAS format, 46 = b, 3 = s, and 3 = u
+FUEVENT_S format in the sisformats.bcat file indicates 
+b = pre-baseline (n=57)
+s = dx uncertain (n=3)
+u = timing unknown (relative to baseline) (n=3)
+
+
+
+```{r}
+
+# get information on missing event status
+table(add1$FU_BCInvD_Event.tagged)
+
+ids.withdraw = data.frame(add1[add1$FU_BCInvD_Event.tagged %in% c("NA(w)", "NA(b)", "NA(s)", "NA(u)"), c("PSID")])
+
+# NOTE: that the W withdraw category is NOT in the SAS format catalog provided to me.
+ 
+dim(add1)
+add2 = add1[!(add1$PSID %in% ids.withdraw$PSID),]
+
+dim(add2) # 50,819
+dim(add1) - dim(add2) # 66
+```
+
+### Remove participants with more than one full proband. Retain sisters that also have half-sister probands only if they are in addition to single full sister [keep sisters with only one proband that is a full sister] (n = 6,821)
+
+```{r}
+
+add3 = add2[which(add2$SX_FullSisBC==1),]
+dim(add3) # 43998
+
+dim(add2) - dim(add3)  # 6821
+```
+
+```{r, include=F, eval=F}
+# double checking number above
+
+# get number of probands per participant
+table(add2$SX_NumSisterBC)
+add3 = add2[add2$SX_NumSisterBC==1,]
+
+# of those recorded with only one sister proband, is there only one SX_SisBCXX variable that =1?
+sis.bc
+
+# now get the sister num of affected single full sister so I can find her age at dx
+sister.bcstatus = melt(add3[, c("PSID", sis.bc)],
+                     id.vars = "PSID")
+table(sister.bcstatus$value)
+nrow(add3)
+sister.bcstatus$proband.num = substrRight(as.character(sister.bcstatus$variable),2)
+sister.bcstatus = sister.bcstatus[complete.cases(sister.bcstatus)==T,]
+head(sister.bcstatus)
+dim(sister.bcstatus)
+
+# get sister status and merge with participant ids wiht only one proband
+sister.status = melt(add3[, c("PSID", sis.count.vars3)],
+                     id.vars = "PSID")
+sister.status = sister.status[complete.cases(sister.status)==T,]
+dim(sister.status)
+
+sister.status$proband.num = substrRight(as.character(sister.status$variable),2)
+head(sister.status)
+dim(sister.status)
+
+# merge affected status with full/half sister status
+merge1 = merge(sister.bcstatus, sister.status, by=c("PSID", "proband.num"))
+dim(merge1)
+head(merge1)
+
+# rename status and age variables in merged data frame
+colnames(merge1)[which(colnames(merge1) %in% c('value.x', 'value.y'))]  = c('sis.bcstatus', "sis.status")
+head(merge1)
+
+merge1.affected = merge1[merge1$sis.bcstatus==1,]
+dim(merge1.affected) # 45652
+
+# of those with one proband, how many are full sisters
+table(merge1.affected$sis.status) # 43702
+merge1.affected.full = merge1.affected[merge1.affected$sis.status==1,]
+dim(merge1.affected.full)
+
+dim(merge1.affected.full) - dim(add3)
+
+#merge1.affected.full[merge1.affected.full$PSID %in% c('00194_221722', '00194_240700'),]
+
+```
+
+### Remove any participants missing an earliest age at diagnosis (n = 53)
+
+```{r}
+
+add4 = add3[is.na(add3$SX_FullYoungestAgeBC)==F,]
+dim(add4) # 
+
+dim(add3) # 43,997
+dim(add3) - dim(add4) # 53
+
+```
+
+
+```{r, eval=F, include=F}
+
+### Remove participants who are missing a follow-up age (all events): (n=12)
+
+add5 = add4[!(is.na(add4$age1)),] # take out people missing follow-up age
+dim(add5) # 43,933
+
+# how many people who are missing follow-up times are events? A: All
+miss.fu.age = add4[is.na(add4$age1)==T,] # take out people missing follow-up age
+dim(miss.fu.age)
+table(miss.fu.age$FU_BCInvD_Event)
+
+summary(miss.fu.age$FU_BCInvD_EOFAge)  # checking to make sure age is missing for all participants.
+summary(miss.fu.age$FU_BCInvD_EOFAgeExact)
+
+dim(add4) - dim(add5) # 12
+
+```
+
+```{r}
+
+### Take participants who are missing an exact follow-up age (all events): (n=12) and create an approximate age
+
+# Note: these 12 people do have an upper (FU_BCInvD_DxAgeExactMin) and lower limit (FU_BCInvD_DxAgeExactMax) of follow-up time. Use midpoint of these two times as an approximation. See 9/17 KMO email.
+
+add5 = add4
+
+add5 = within(add5, {
+  age1 = ifelse(is.na(FU_BCInvD_EOFAgeExact)==T,
+                    FU_BCInvD_EOFAge + round(runif(1,0,1),1), 
+                    FU_BCInvD_EOFAgeExact)
+})
+
+# ids of 12 people missing follow-up age
+psid.miss.fu = add5[is.na(add5$age1)==T,]$PSID
+length(psid.miss.fu)
+
+summary(add5[add4$PSID %in% psid.miss.fu, c("FU_BCInvD_DxAgeExactMin", "FU_BCInvD_DxAgeExactMax")])
+
+# check
+ages = add4[add4$PSID %in% psid.miss.fu, c("FU_BCInvD_DxAgeExactMin", "FU_BCInvD_DxAgeExactMax", "SX_FullYoungestAgeBC")]
+ages = within(ages, {
+  age.diff = FU_BCInvD_DxAgeExactMax-FU_BCInvD_DxAgeExactMin
+  approx.age = FU_BCInvD_DxAgeExactMin + 0.5* age.diff
+})
+ages # they are all after proband age of dx and no min is below proband age of dx
+
+# if follow-up age missing then create one based on min and max age of observation
+add5$age1 = with(add5, ifelse(PSID %in% psid.miss.fu, 
+                              FU_BCInvD_DxAgeExactMin + 0.5*(FU_BCInvD_DxAgeExactMax-FU_BCInvD_DxAgeExactMin), 
+                              age1))
+
+summary(add5$age1) # no more missing
+dim(add5)
+
+```
+
+
+```{r, fig.keep='none'}
+# Get start and end/censor times for Cox model.
+
+add5 = within(add5, {
+  age0 = AgeExact_Baseline
+  futime = age1 - age0
+}) #  if no exact age, use rounded age and add a decimal to the age.
+
+dim(add5) # 43,944 by 4
+
+sapply(add5[c("futime", 'age1', 'age0', 
+              'FU_BCInvD_EOFAgeExact', 'FU_BCInvD_EOFAge')], summary)
+
+```
+
+
+### Remove participants with probands with ages outside of participant age eligibility constraints: <36 and >75 (n=3696)
+
+
+```{r}
+
+add6 = add5[add5$SX_FullYoungestAgeBC>35 & add5$SX_FullYoungestAgeBC<76,]
+dim(add6) 
+dim(add5)
+dim(add5) - dim(add6) 
+
+```
+
+
+### Remove people with futime = 0  (n=12)
+
+```{r}
+add7=add6
+
+add8 = add7[which(!(add7$futime==0 | is.na(add7$futime)==T)),]
+dim(add8)
+summary(add8$futime)
+length(unique(add8$PSID))
+
+add7[which(add7$futime==0), c("PSID", "age0", "age1", "FU_BCInvD_Event")]
+dim(add7) - dim(add8) # 12
+
+```
+
+## Split total sample into two groups by proband status (older or younger than participant) (n=23,145 older proband and 16,324 younger probands. n=734 are twins)
+
+
+```{r, include=T}
+# Updated code after I got the s3 indicator variables for older/younger proband (Sep 2019)
+# Split into two groups: full sister proband older and younger than participant
+
+# proband type (full/half?) ==============================
+proband.type8 = melt(add8[,
+                     c("PSID", sis.count.vars3)],
+                id.vars = "PSID")
+proband.type8$id = substrRight(as.character(proband.type8$variable),2) # make a sister number based on last two digits of sister variable
+proband.type8 = proband.type8[complete.cases(proband.type8)==T,]
+
+# proband older/younger than participant (new, 9/26/2019 variable) ==============================
+proband.older8 = melt(add8[,
+                     c("PSID", sis.older)],
+                id.vars = "PSID")
+proband.older8$id = substrRight(as.character(proband.older8$variable),2) # make a sister number based on last two digits of sister variable
+proband.older8 = proband.older8[complete.cases(proband.older8)==T,]
+
+# proband age at dx (this selects out affected probands ==============================
+proband.age8 = melt(add8[,
+                     c("PSID", sis.count.vars2)],
+                id.vars = "PSID")
+proband.age8$id = substrRight(as.character(proband.age8$variable),2) # make a sister number based on last two digits of sister variable
+proband.age8 = proband.age8[complete.cases(proband.age8)==T,]
+
+
+# Merge age at dx, type and age together ==========================
+proband.info. = merge(proband.type8, proband.age8, by=c("PSID", "id"))
+dim(proband.info.)
+
+proband.info = merge(proband.info., proband.older8, by=c("PSID", "id"))
+dim(proband.info)
+
+summary(proband.info$value)
+dim(proband.info) 
+head(proband.info)
+
+# Select only full sisters ========================================
+proband.info.full = proband.info[proband.info$value.x==1,] 
+dim(proband.info.full) 
+dim(add8)
+head(proband.info.full)
+proband.info.full$proband.status = proband.info.full$value
+
+dim(add8)
+add9. = merge(add8, proband.info.full[c("PSID", "proband.status")], by="PSID", all.x=T)
+dim(add9.)
+summary(add9.$proband.status)
+
+# there are 33 people missing proband status in proband.info.full ========================
+extra.psid = add8[!(add8$PSID %in% proband.info.full$PSID)==T,]$PSID
+head(extra.psid)
+length(extra.psid) #32
+
+# there are 734 twins ==============================
+table(add9.$proband.status)
+
+dim(add9.) # 40,163
+add9 = add9.[ !(is.na(add9.$proband.status)==T | add9.$proband.status==3),]
+dim(add9) # 39,397
+
+
+# ==========================================================
+
+# Use s3 derived variable obtained Sep 2019
+add9$older.proband = with(add9, ifelse(proband.status==2, 1, 
+                                          ifelse(proband.status==1, 0, NA))) # 3 value is a twin. make missing. derived s3 variable
+table(proband.info.full$proband.status) # 734 twins, proband.status=3, 16324 younger proband, 23073 older proband
+summary(add9$proband.status)
+
+table(add9$proband.status)
+
+older.proband.info = add9[c("PSID", "older.proband")]
+
+save(older.proband.info, file="older-info.RData")
+
+psid.include = older.proband.info$PSID
+length(psid.include) 
+
+save(psid.include, file="ids-include.RData")
+
+```
+
+```{r, eval=F, include=F}
+# how many sisters from same household in sample?
+names(add9)
+length(unique(add9$HH_PSID))
+table(table(add9$HH_PSID))
+length(unique(add9$PSID))
+
+```
+
+
+For missing tags in SAS format, FUEVENT_S format in the sisformats.bcat file indicates 
+  - b = pre-baseline (n=57)
+  - s = dx uncertain (n=3)
+  - u = timing unknown (relative to baseline) (n=3)
+  - w = withdrawal (not in my SAS format catalog)
+
+<!-- Source: ~\Documents\Github\postdoc\misc\presentations\20190207-ss-pres\age-onset-pres-20190207.Rmd -->
+
+```{r, eval=F, include=F}
+# NOTE: run this separately, go to viewer, select Export|Copy to Clipboard, enlarging width while keeping aspect ratio. Then paste into Microsoft Paint program and crop to fit. Save as flowchart.png. (or save as png directly in viewer as Export|Save as Image)
+
+# sources: https://www.graphviz.org/Documentation/TSE93.pdf
+# https://stackoverflow.com/questions/27110526/how-to-manage-distance-between-nodes-in-graphviz
+f2 <- "
+digraph flow2 {
+
+  # several 'node' statements
+  node [shape = box,
+        fontname=Arial, fontsize=50,
+        color = black]; // for the letter nodes, use box shapes
+
+# Source: https://graphviz.readthedocs.io/en/stable/manual.html
+  edge [arrowhead=vee arrowsize=4 ]
+
+  A[label=\"n=50,884\"];
+  B2[label=\"n=66 \n participants missing event status\n because they withdrew (n=3), \n pre-baseline event (n=57), \n dx uncertain (n=3), \n or timing unknown \nrelative to baseline (n=3)\"];
+
+  B1[label=\"n=50,818\"]; 
+  C2[label=\"n=6,821 participants \n with >1 or no full proband\"];
+  
+  C1[label=\"n=43,997\"];
+  D2[label=\"n=53 participants with \n missing age of dx\"];
+
+  E1[label=\"n=43,944\"];
+  F2[label=\"n=3,696 participants \nwith proband age at dx\n <36 years \n or >75 years of age\"];
+
+  G1[label=\"n=40,248\"];
+  H2[label=\"n=12 participants with \n0 years follow-up time\"];
+
+  H1[label=\"n=40,236\"];
+  H1A[label=\"734 twins and \n 33 missing older proband status\"];
+  
+  I1[label=\"n=16,324 \n younger proband\"];
+  I2[penwidth=4, label=\"n=23,145 \n older proband\"];
+
+  {rank = same; A B2}
+  {rank = same; B1 C2}
+  {rank = same; C1 D2}
+  {rank = same; E1 F2}
+  {rank = same; G1 H2}
+  {rank = same; H1 H1A}
+  {rank = same; I1 I2}
+
+  # several 'edge' statements
+  edge [color = black] // this sets all edges to be black (unless overridden)
+    A -> B1;
+    A -> B2;
+
+    B1 -> C2;
+    B1 -> C1;
+    
+     C1 -> D2;
+     C1 -> E1;
+     
+     E1 -> F2; 
+     E1 -> G1; 
+
+    G1 -> H2;
+    G1 -> H1;
+    
+    H1 -> H1A;
+    H1 -> I1;
+    H1 -> I2;
+    
+
+  # a 'graph' statement
+  graph [overlap = true
+        nodesep=\"1\",
+        ranksep=\"1\"]
+}
+"
+
+grViz(f2)
+```
+
+## Participant flow diagram
+
+![Exclusions](flow-redo.png)
+
+
+
+
+### Deceased numbers
+
+```{r}
+# how many deceased in remaining sample?
+
+table(add9$FU_Deceased) 
+prop.table(table(add9$FU_Deceased)) 
+
+# how many deceased in remaining sample of older probands?
+table(add9[add9$older.proband==1,]$FU_Deceased) 
+prop.table(table(add9[add9$older.proband==1,]$FU_Deceased))
+
+# how many with older sister probands
+table(add9$BCSisterOlder)
+prop.table(table(add9$BCSisterOlder)) 
+
+```
+
+### Cases
+
+```{r}
+table(add9$FU_BCInvD_Event)
+
+table(add9[add9$older.proband==1,]$FU_BCInvD_Event) 
+sum(table(add9[add9$older.proband==1,]$FU_BCInvD_Event))
+table(add9$BCSisterOlder)
+
+nrow(add9) 
+
+```
+
+### Follow-up time
+
+```{r}
+summary(add9[add9$older.proband==1,"futime"]) # median follow-up time of 9.5 years
+```
+
+## Additional variables (for entire data set)
+
+### Baseline menopause
+
+```{r}
+
+add1. = add1[add1$PSID %in% psid.include,]
+#add1.$rand2 = as.integer(runif(nrow(add1.))*10)/10
+dim(add1.)
+
+# updated baseline menopause variable
+add1. = within(add1., {
+
+  rand2 = as.integer(runif(nrow(add1.))*10)/10
+  rand4 = as.integer(runif(nrow(add1.))*10)/10
+  floor_QxAge = floor(AgeExact_Baseline)
+
+  meno = HR_Menopause
+  QxAge = AgeExact_Baseline
+
+  # If exact age missing put age + random number
+  hr.menop.age.exact2 = ifelse(is.na(HR_MenopauseAgeExact) & HR_MenopauseAge>=0, 
+                               HR_MenopauseAge + rand2, 
+                               HR_MenopauseAgeExact)
+  
+        HZ_HR_Menopause = FU_BCInvD_Menopause;
+        HZ_HR_MenopauseAgeExact = FU_BCInvD_MenopauseAgeExact; 
+        HZ_HR_MenopauseAge = FU_BCInvD_MenopauseAge;
+        
+  hz.hr.menop.age.exact2 = ifelse(is.na(HZ_HR_MenopauseAgeExact) & HZ_HR_MenopauseAge>=0,
+                                  HZ_HR_MenopauseAge + rand4, 
+                                  HZ_HR_MenopauseAgeExact)
+        
+  hz.hr.menop.age.exact2 = ifelse( meno==0 & HZ_HR_Menopause==1 & 
+                                           is.na(HZ_HR_MenopauseAgeExact)& 
+                                           HZ_HR_MenopauseAge==(floor_QxAge-1),
+       # Replace with +0.9 if premeno at baseline and 
+       # reported meno age is the year prior (assume reported accurately)
+                                         HZ_HR_MenopauseAge+0.9,
+                                          hz.hr.menop.age.exact2)
+        
+
+  # Alternate postmenopausal status in one nested if else statement
+  postmeno = ifelse(is.na(meno) & !is.na(hz.hr.menop.age.exact2) & 0<hz.hr.menop.age.exact2 & 
+                      hz.hr.menop.age.exact2<QxAge,
+                                 1,
+                                 ifelse(is.na(meno) & !is.na(hz.hr.menop.age.exact2) & 
+                                          0<QxAge & QxAge<=hz.hr.menop.age.exact2, 
+                                        0,
+                                        ifelse(!is.na(HZ_HR_Menopause) & is.na(meno) & 
+                                              # if postmeno missing and HZ_HR_Menopause=0 then reset to 0
+                                                 HZ_HR_Menopause==0, 0,
+                                               ifelse(is.na(meno) & QxAge<55, 0,
+                                                      ifelse(is.na(meno) & QxAge>=55, 1,
+                                                             ifelse(meno==0 & !is.na(hz.hr.menop.age.exact2) & hz.hr.menop.age.exact2 < QxAge, 1,
+                                                                      # back correct some who had menopause before Qx age but were allegedly premenopausal;
+                                                                    meno))))))
+
+  # another revision to age at menopause
+  fu.meno.age = ifelse(postmeno==0 & HZ_HR_Menopause==1 & 
+                                    is.na(hz.hr.menop.age.exact2) & QxAge<55, 55, 
+                                  ifelse(postmeno==0 & HZ_HR_Menopause==1 & 
+                                           is.na(hz.hr.menop.age.exact2) & QxAge>=55, QxAge+0.1,
+                                            hz.hr.menop.age.exact2))
+})
+
+table(add1.$postmeno)
+sum(table(add1.$postmeno))
+
+# export the random number 
+write.csv(add1.[c("PSID", "rand4")], file="rand-age-of-onset.csv")
+```
+
+### Age at first birth (there are some tagged missing values, see 10/28/2019 email)
+
+```{r, results='hide'}
+
+# NOTE: for age at first birth 
+# ================================================================
+add1.$PG_AgeFirstLiveBirth.tagged = print_tagged_na(add1.$PG_AgeFirstLiveBirth)
+```
+
+```{r}
+table(add1.$PG_AgeFirstLiveBirth.tagged)
+
+t1 = unique(add1.$PG_AgeFirstLiveBirth.tagged); t1 # get character values for missing
+
+# convert tagged missing values: NA(d), NA(m), NA(q), NA(r) to actual missing and NA to nulliparous -- set to 0
+class(add1.$PG_AgeFirstLiveBirth.tagged)
+table(is.na(add1.$PG_AgeFirstLiveBirth.tagged))
+
+# true missing:  c( 'NA(d)', 'NA(m)', 'NA(q)', 'NA(r)')
+ids.missageb = unlist(c(add1.[add1.$PG_AgeFirstLiveBirth.tagged %in% c("   NA"), c("PSID")])) # people who are not nulliparous, but missing
+length(ids.missageb)
+
+add1. = within(add1., {
+  age.firstbirth.rev1 = ifelse(add1.$PSID %in% ids.missageb, 99, PG_AgeFirstLiveBirth)
+  
+  # nulliparous are now = 99, rest are still treated as missing
+  age.firstbirth.rev.wrong = ifelse(age.firstbirth.rev1==99, -1, PG_AgeFirstLiveBirth) # make nulliparous its own category (note: there are missing that are not nulliparous -- not sure which. will use PG_MedParity instead to get nulliparous)
+  
+  age.firstbirth.rev = ifelse(PG_MedParity==0, -1, 
+                              ifelse(!is.na(PG_AgeFirstLiveBirth), PG_AgeFirstLiveBirth, NA))
+  age.firstbirth.cat = cut(age.firstbirth.rev, c(-1, 0, 20, 24, 29, 55), include.lowest = T)
+  
+  # Make centered BMI
+  bmi.ctr = scale(EX_BMI_final, scale=F) # just center at mean
+    
+  age.proband = SX_FullYoungestAgeBC
+  
+  p.age.decade = cut(age.proband, c(0,40,50,60,70,80,100), include.lowest=T)
+})
+
+table(add1.$PG_MedParity)
+table(add1.$age.firstbirth.rev); sum(table(add1.$age.firstbirth.rev))
+summary(table(add1.$age.firstbirth.rev))
+table(add1.$age.firstbirth.rev.wrong); sum(table(add1.$age.firstbirth.rev.wrong))
+#table(print_tagged_na(add1.$age.firstbirth.rev1))
+```
+
+```{r}
+
+add1. = within(add1., {
+  rand.num = round(runif(nrow(add1.),1),1)
+  age1 = ifelse(is.na(FU_BCInvD_EOFAgeExact),
+                    FU_BCInvD_EOFAge + rand.num, 
+                    FU_BCInvD_EOFAgeExact)
+  age0 = AgeExact_Baseline
+  futime = age1 - age0
+})
+
+# if follow-up age missing then create one based on min and max age of observation
+add1.$age1 = with(add1., ifelse(is.na(age1)==T, 
+                              FU_BCInvD_DxAgeExactMin + 0.5*(FU_BCInvD_DxAgeExactMax - FU_BCInvD_DxAgeExactMin), 
+                              age1))
+
+```
+
+
+```{r}
+add1 = add1.
+
+# save for use in following scripts
+save(add1, file="updated-data.RData")
+
+```
+

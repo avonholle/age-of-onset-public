@@ -1,0 +1,623 @@
+---
+title: "Table 2"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#runif(1, 0, 10^8)
+set.seed(74268794)
+```
+
+
+```{r, include=F}
+# bring in packages
+require(knitr)
+require(haven)
+require(survival)
+require(data.table)
+require(tableone)
+require(ggplot2)
+require(stargazer)
+library(dplyr)
+library(npmlreg)
+library(kableExtra)
+library(starpolishr)
+library(stargazer)
+require(LexisPlotR)
+require(reshape2)
+
+require(tools)
+require(Hmisc)
+```
+
+
+```{r setup-table2, include=FALSE}
+
+knitr::opts_chunk$set(echo = T, 
+                      eval = T, # change to T if you want to re-run w/ new data
+                      results = 'markup',
+                      warning = F,
+                      tidy.opts=list(width.cutoff=80),
+                      tidy=F)
+
+```
+
+## Code 
+
+### Data prep
+
+
+```{r}
+
+
+# load data from data-handling.Rmd
+load(file="updated-data.RData") # add2 data
+load( file="ids-include.RData") ## psid.include
+load(file="older-info.RData") # older.proband.info (has older.proband2 variable)
+
+length(psid.include)
+
+# yrs since first dx of bc
+sis.years = c("SX_SisBCYrs01",
+                    "SX_SisBCYrs02",
+                    "SX_SisBCYrs03",
+                    "SX_SisBCYrs04",
+                    "SX_SisBCYrs05",
+                    "SX_SisBCYrs06",
+                    "SX_SisBCYrs07",
+                    "SX_SisBCYrs08",
+                    "SX_SisBCYrs09",
+                    "SX_SisBCYrs10")
+
+add2 = add1[add1$PSID %in% psid.include, c('PSID', 'FU_BCInvD_Event',
+                                           'PG_MenarcheAge', 'PG_AgeFirstLiveBirth', 'HR_Menopause', 
+                                           'BCSisterOlder',
+                                           'AgeExact_Baseline',
+                                           'FU_BCInvD_EOFAgeExact',
+                                           'FU_BCInvD_EOFAge',
+                                           'HH_PSID', sis.years,
+                                           'PG_MenarcheAge', 
+                                           'FU_BCInvD_DxAgeExactMin',
+                                           'FU_BCInvD_DxAgeExactMax',
+                                           'age.firstbirth.cat',
+                                           'postmeno',
+                                           'fu.meno.age',
+                                           'bmi.ctr',
+                                           'p.age.decade',
+                                           'age.proband',
+                                           'age0', 'age1', 'futime'
+                                           )]
+dim(add2) 
+
+colnames(add2)
+names.vars = c('PSID', "event", "age.menarche", "age.firstbirth", "menop.status", "BCSisterOlder",
+                'baseline.age', 'FU_BCInvD_EOFAgeExact',
+               'FU_BCInvD_EOFAge', 'HH_PSID', sis.years,
+               "age.menarche", 
+               'FU_BCInvD_DxAgeExactMin',
+                                           'FU_BCInvD_DxAgeExactMax',
+                                           'age.firstbirth.cat',
+                                           'postmeno',
+               'fu.meno.age',
+                                           'bmi.ctr',
+                                           'p.age.decade',
+                                           'age.proband',
+                                           'age0', 'age1', 'futime')
+colnames(add2) = names.vars
+colnames(add2)
+add2 = data.frame(add2)
+
+
+```
+
+```{r}
+add2 = within(add2, {
+
+  # revised menopause age
+  fu.meno.age.rev = ifelse( is.na(fu.meno.age)==T & menop.status==1, age0, # assume menopausal at baseline age if age at menopause not given
+                                    ifelse(is.na(fu.meno.age)==T & menop.status==0, 99, fu.meno.age )) # for time dept menopause, set age to 99 for cox model so person never switches over from pre- to post-menopausal
+  
+})
+
+add2$menop.status.rev = add2$postmeno
+summary(add2$menop.status.rev)
+summary(add2$fu.meno.age.rev)
+
+```
+
+
+```{r}
+# add older proband variable from data-handling.Rmd
+add2 = merge(add2, older.proband.info, by="PSID")
+summary(add2)
+dim(add2) 
+
+df.both = add2
+
+# Subset data into older proband ============================
+
+df.older = df.both[df.both$older.proband==1,]
+dim(df.older)
+
+```
+
+
+### Original closeness covariate analyses stratified by age of proband relative to participant (older/younger) # {#original}
+
+
+#### Subset of participants with older proband
+
+
+#### Find best scaling factor
+
+```{r}
+# make function to find scaling factor with highest lik in regression model
+
+get.ll = function(s, dat){
+
+  cox.exact = coxph(Surv(age0, age1, event) ~ tt(age.proband),
+               data=dat,
+               tt = list(
+                 function(x, t, ...) { # this function is for 1) x: the covariate, age.proband, and 2) event time, age1, 
+                   exp(-0.5*(t-(x+0.5))^2/s) } ))
+  
+  return(logLik(cox.exact))
+}
+
+```
+
+
+```{r, echo=T, results='markup'}
+
+# Find sigma2 best fit for older proband subset 
+pre.sub = df.older
+dim(pre.sub)
+scaling.factors = seq(477-5, 477+5, by=1) 
+
+```
+
+```{r, eval=F}
+
+# Apply model to different scaling factors to get log lik -- takes a while to run so leave out unless new data
+some.ll = lapply(scaling.factors, get.ll, dat = pre.sub)
+
+check.ll = data.frame(scales = scaling.factors,
+                      ll = unlist(some.ll))
+
+save(check.ll, file = "t2-checkll.RData")
+
+```
+
+```{r, eval=T}
+
+load("t2-checkll.Rdata")
+ggplot(check.ll, aes(x=scales, y=ll)) + geom_line() + theme_bw()
+# sigma2=477 best fit 
+
+```
+
+#### Null model
+
+```{r, echo=T, results='markup'}
+pre.sub$one = 1
+
+cox2.null = coxph(Surv(age0, age1, event) ~ one,
+               data=pre.sub,
+               tt = list(
+                 function(x, t, ...) t ))
+cox2.null
+logLik(cox2.null)
+
+
+cox2.null.c = coxph(Surv(age0, age1, event) ~ age.menarche + age.firstbirth.cat + bmi.ctr*tt(fu.meno.age.rev),
+                  data=pre.sub,
+                  tt = function(x, t, ...) {
+                    ifelse(x <= t, "1post", "0pre")
+                    }) # if age at menopause, x, is less than or equal to the time, t, then classify as postmenopausal, else premenopausal. This will mark time periods in which people who are not post-menopausal at baseline, for the time they are post-menopausal. The time-dept menop variable (uses end of age interval in the tt function)
+
+cox2.null.c
+logLik(cox2.null.c)
+
+# use baseline menopause to compare with time-dept menopause
+table(pre.sub$menop.status.rev)
+cox2.null.check = coxph(Surv(age0, age1, event) ~ age.menarche + age.firstbirth.cat + bmi.ctr*menop.status.rev,
+                  data=pre.sub)
+cox2.null.check
+
+```
+
+
+#### Closeness coef model
+
+```{r, echo=T, results='markup'}
+
+cox2 = coxph(Surv(age0, age1, event) ~ tt(age.proband),
+               data=pre.sub,
+               tt = list(
+                 function(x, t, ...) { # this function is for 1) x: the covariate, age.proband, and 2) event time, age1, 
+                   exp(-0.5*(t-(x+0.5))^2/477) } ))
+cox2
+
+close.data = coef(cox2)
+exp(close.data)
+
+cox2.c = coxph(Surv(age0, age1, event) ~  tt(age.proband) + age.menarche + age.firstbirth.cat + bmi.ctr*tt(fu.meno.age.rev),
+                  data=pre.sub,
+                  tt = list(
+                    function(x, t, ...) {
+                      exp(-0.5*(t-(x+0.5))^2/477) # time transform function for closeness coefficient
+                    },
+                    function(x, t, ...) {
+                      ifelse(x <= t, "1post", "0pre") # time transform function for menopause status
+                    })
+                    ) 
+cox2.c
+
+```
+
+
+
+#### Step function model
+
+```{r, echo=T, results='markup'}
+
+# make labels
+diff = with(pre.sub, age1 - age.proband)
+summary(diff)  # 734 missing (twins)
+
+pcts.even3 = with(pre.sub, {
+    if(min(diff, na.rm=T) <= -5) {
+    c(min(diff, na.rm=T), seq(-5, 20, by=3), 51)
+    } else {
+      c(seq(min(diff), 20, by=3), 51)
+      } # need to account for older proband sample that has no overlap with 0
+  })
+
+pcts.even3
+pcts.even3[4] = 2 # change 1 to 2 to make symmetric about 0
+cut.labels = names(table(cut(diff, pcts.even3, include.lowest = T)))
+cut.labels
+
+# run time-dept step functions
+cox.cat2b.exact = coxph(Surv(age0, age1, event) ~ tt(age.proband),
+                        data=pre.sub,
+                        tt = list(
+                          function(x, t, ...) { # this function is for 1) x: the covariate, age.proband, and 2) event time, age1,
+                            diff = t-(x+0.5)
+                            cuts = ifelse(diff<=-5, '1',
+                                          ifelse(diff<=-2, '2',
+                                                 ifelse(diff<=2, '3',
+                                                 ifelse(diff<=4, '4',
+                                                        ifelse(diff<=7, '5',
+                                                               ifelse(diff<=10, '6',
+                                                                      ifelse(diff<=13, '7',
+                                                                             ifelse(diff <= 16, '8',
+                                                                                    ifelse(diff<= 19, '9',
+                                                                                           ifelse(diff<=100, '10', NA))))))))))
+                            cuts = factor(cuts,
+                                          levels = c("3", "1", "2", "4", "5", "6", "7", "8", "9", "10"),
+                                          labels = cut.labels[c(3, 1:2, 4:10)]) # make -2,2 the referent group
+                            return(cuts)
+                            }
+                        )) 
+
+cox.cat2b.exact
+logLik(cox.cat2b.exact)
+
+# export coef for plots
+
+coefs.fig2 = coef(cox.cat2b.exact)
+
+df.fig2 = data.frame(x =    c(-18.5, -5, 2, 4, 7, 10, 13, 16, 19, -2),
+                 xend = c(-5, -2, 4, 7, 10, 13, 16, 19, 50, 2),
+                 y=c(coefs.fig2, 0), 
+                 yend=c(coefs.fig2,0))
+
+# save coef from step fcn (df.fig2) and closeness cov (close.data)
+save(df.fig2, close.data, file="fig2.RData")
+
+# adjusted model
+cox.cat2b.exact.c = coxph(Surv(age0, age1, event) ~  tt(age.proband) + age.menarche + age.firstbirth.cat + bmi.ctr*tt(fu.meno.age.rev),
+                  data=pre.sub,
+                  tt = list(
+                    function(x, t, ...) { # this function is for 1) x: the covariate, age.proband, and 2) event time, age1,
+                            diff = t-(x+0.5)
+                            cuts = ifelse(diff<=-5, '1',
+                                          ifelse(diff<=-2, '2',
+                                                 ifelse(diff<=2, '3',
+                                                 ifelse(diff<=4, '4',
+                                                        ifelse(diff<=7, '5',
+                                                               ifelse(diff<=10, '6',
+                                                                      ifelse(diff<= 13, '7',
+                                                                             ifelse(diff <= 16, '8',
+                                                                                    ifelse(diff<= 19, '9',
+                                                                                           ifelse(diff<=61, '10', NA))))))))))
+                            cuts = factor(cuts,
+                                          levels = c("3", "1", "2", "4", "5", "6", "7", "8", "9", "10"),
+                                          labels = cut.labels[c(3, 1:2, 4:10)]) # make -2,2 the referent group
+                            return(cuts)
+                            },
+                    function(x, t, ...) {
+                      ifelse(x <= t, "1post", "0pre") # time transform function for menopause status
+                    })
+                    ) 
+cox.cat2b.exact.c
+cox2.c
+# continuous and categorical not different
+anova(cox2, cox.cat2b.exact)
+cox.cat2b.exact
+
+```
+
+
+#### Table with results
+
+```{r, echo=T, results='markup'}
+
+# Add clustering
+dat1 = pre.sub[pre.sub$older.proband==1,]
+dat1$one = 1
+
+cox2.null.hh = update(cox2.null, . ~ . + cluster(HH_PSID), data=dat1) 
+cox2.null.c.hh = update(cox2.null.c, . ~ . + cluster(HH_PSID), data=dat1) 
+
+cox2.hh = update(cox2, . ~ . + cluster(HH_PSID))
+cox2.c.hh = update(cox2.c, . ~ . + cluster(HH_PSID))
+
+cox.cat2b.exact.hh = update(cox.cat2b.exact, . ~ . + cluster(HH_PSID), data=dat1)
+cox.cat2b.exact.c.hh = update(cox.cat2b.exact.c, . ~ . + cluster(HH_PSID), data=dat1)
+
+names(cox2.null.hh$coefficients) = "tt(age.proband)[-18.5,-5]" # change name so it doesn't have an extra row.
+#cox2.null$var = NA
+
+summary(cox2.null)$coefficients[,1]
+
+```
+
+```{r, eval=FALSE, include=FALSE}
+
+all.models = list(cox2.null.hh, cox2.null.c.hh, cox.cat2b.exact.hh, cox.cat2b.exact.c.hh, cox2.hh, cox2.c.hh)
+
+
+HR = function(x) {exp(x)}
+# Source: https://stackoverflow.com/questions/46046173/stargazer-confidence-interval-incorrect
+confint.c.all <- lapply(all.models, function(x) exp(confint(x))) 
+
+confint.c.all = lapply(all.models, function(x){
+  exp(cbind(summary(x)$coefficients[,1] - 1.96*summary(x)$coefficients[,4],
+                                             summary(x)$coefficients[,1] + 1.96*summary(x)$coefficients[,4])) # use robust se
+  })
+
+s1 = stargazer(all.models, type="text", single.row=T,
+               apply.coef=HR,
+                 ci.custom = confint.c.all)
+s1
+
+cat(s1, sep='\n', file="t2-dat.txt")
+
+```
+
+
+```{r}
+
+# rename other covariates =============================
+
+# get names of other covariates
+covs1 = names(coefficients(cox2.null.c.hh))
+covs1
+
+# get location of other covariates in step fnction
+covs2 = names(coefficients(cox.cat2b.exact.c.hh)); covs2
+rows.covs2 = which(covs2 %in% covs1)
+rows.covs2
+
+# get location of other covariates in closeness cov
+covs3 = names(coefficients(cox2.c.hh)); covs3
+rows.covs3 = which(covs3 %in% covs1)
+rows.covs3
+
+# rename covariates
+new.names = c("age.menarche", "age.fb.null", "age.fb.lt20", 
+              "age.fb.24to29", "age.ft.29to55",  "bmi", 
+              "post.menop.t", "bmi.int.menop")
+
+names(cox2.null.c.hh$coefficients)[1:length(new.names)] = new.names
+names(cox.cat2b.exact.c.hh$coefficients)[rows.covs2] = new.names
+names(cox2.c.hh$coefficients)[rows.covs3] = new.names
+
+all.models = list(cox2.null.hh, cox2.null.c.hh, cox.cat2b.exact.hh, cox.cat2b.exact.c.hh, cox2.hh, cox2.c.hh)
+
+
+HR = function(x) {exp(x)}
+# Source: https://stackoverflow.com/questions/46046173/stargazer-confidence-interval-incorrect
+confint.c.all <- lapply(all.models, function(x) exp(confint(x))) 
+
+confint.c.all = lapply(all.models, function(x){
+  exp(cbind(summary(x)$coefficients[,1] - 1.96*summary(x)$coefficients[,4],
+                                             summary(x)$coefficients[,1] + 1.96*summary(x)$coefficients[,4])) # use robust se
+  })
+
+
+s1b = stargazer(all.models,
+                 apply.coef=HR,
+                 omit = new.names,
+                 ci.custom = confint.c.all,
+                 digits=2,
+                 dep.var.labels = c(""),
+                 column.labels = c("Null model*", "Categorical", "Closeness coefficient"),
+                 column.separate = c(2,2,2),
+                 keep.stat=c("n", "ll", "lr"),
+                 ci=T,
+                 single.row=T,
+                 report=c("vcs"),
+                omit.table.layout = "n",
+                covariate.labels = c(" -25 to -5 years",
+                                      " > -5 to -2 years",
+                                      " >2 to 4 years",
+                                      " >4 to 7 years",
+                                      " >7 to 10 years",
+                                      " >10 to 13 years",
+                                      " >13 to 16 years",
+                                      " >16 to 19 years",
+                                      " >19 to 51 years",
+                                      " $exp(-0.5 (t-d)^2 / 477)\\ddagger$ "
+                                      ),
+                 model.numbers=F, 
+                 dep.var.caption = "",
+                 header=F,
+                 float=F)
+s1b
+
+
+```
+
+```{r, eval=F, include=F}
+# export text version of table above to text file.
+s1b.t = stargazer(all.models,
+                type="text",
+#                 add.lines = c(""),
+                 apply.coef=HR,
+                 omit = new.names,
+                 ci.custom = confint.c.all,
+                 digits=2,
+                 dep.var.labels = c(""),
+                 column.labels = c("Null model", "Categorical", "Closeness coefficient"),
+                 column.separate = c(2,2,2),
+                 keep.stat=c("n", "ll", "lr"),
+                 ci=T,
+                 single.row=T,
+                 report=c("vcs"),
+                  star.cutoffs = c(0.05, 0.01, .001),
+                 covariate.labels = c(" -25 to -5",
+                                      " -5 to -2",
+                                      " <2 to 4",
+                                      " <4 to 7",
+                                      " <7 to 10",
+                                      " <10 to 13",
+                                      " <13 to 16",
+                                      " <16 to 19",
+                                      " <19 to 51",
+                                      " $exp(-0.5 (t-d)^2 / 477)\\ddagger$ "
+                                      ),
+                 model.numbers=F, 
+                 dep.var.caption = "",
+                 header=F,
+                 float=F)
+
+cat(s1b.t, sep='\n', file="t2-dat.txt")
+```
+
+```{r}
+
+# add some headers
+s1b.headers = star_insert_row(s1b,
+                             c(#"\\\\ Other covariates \\\\ \\hline",
+                               " & unadjusted & adjusted$\\dagger$ & unadjusted & adjusted$\\dagger$ & unadjusted & adjusted$\\dagger$ \\\\",
+                               "\\\\ Step function for $t-d$ (years) \\\\ \\hline",
+                               " > -2 to 2 & \\multicolumn{2}{c}{ }  & \\multicolumn{2}{c}{Referent}  & \\multicolumn{2}{c}{  }   \\\\ ",
+                               "\\\\ Closeness covariate \\\\ \\hline"),
+                             insert.after = c(6, 7, 9, 16))
+
+s1b.headers
+
+# remove some extraneous text
+s1b.headers[10] = gsub("\\(, \\)", " ", s1b.headers[10]) # remove the empty CI from null model column 
+s1b.headers
+
+
+# NOTE: IF THE analyses change you must change the values in this part below.
+# change the lik ratio test for the adjusted values to reflect comparison to model with confounders but not closeness coef
+
+null.mod = coxph(formula = Surv(age0, age1, event) ~ one + tt(one), data = dat1, 
+                 tt = list(function(x,t, ...) x*0), cluster = HH_PSID) # trick to set up data in same format as adjusted models
+
+lrt1 = anova(null.mod, cox.cat2b.exact.hh); names(lrt1)
+lrt2 = anova(cox2.null.c.hh, cox.cat2b.exact.c.hh)
+lrt3 = anova(null.mod, cox2.hh)
+lrt4 = anova(cox2.null.c.hh,cox2.c.hh)
+
+s1b.headers[25] = paste0("Chi-Squared (df) &  &  &", 
+                         format(round(lrt1$Chisq[2],2), nsmall=2), " (df = ", lrt1$Df[2], ") & ",
+                         format(round(lrt2$Chisq[2],2), nsmall=2), " (df = ", lrt2$Df[2], ") & ",
+                         format(round(lrt3$Chisq[2],2), nsmall=2), " (df = ", lrt3$Df[2], ") & ",
+                         format(round(lrt4$Chisq[2],2), nsmall=2), " (df = ", lrt4$Df[2], ") \\\\ ")
+                         
+
+```
+
+
+
+```{r}
+
+cat(s1b.headers, sep='\n', file="t2.tex")
+
+```
+
+
+\clearpage
+\newpage
+
+```{r}
+
+# Sensitivity analyses with indicator for 1 year band of time around average age of proband onset -- redone for subset
+pre.sub$age.proband2 = pre.sub$age.proband
+
+check.close = coxph(Surv(age0, age1, event) ~ tt(age.proband) + tt(age.proband2),
+               data=pre.sub,
+               tt = list(
+                 function(x, t, ...) { # this function is for 1) x: the covariate, age.proband, and 2) event time, age1, 
+                   exp(-0.5*(t-(x+0.5))^2/477) },
+                 function(x, t, ...) {
+                   close.t = ifelse(abs(t-(x+0.5))<=1, 1, 0) # time dept indicator that participant age at event is within one year of proband age of event
+                   return(close.t)
+                 }))
+check.close
+
+
+```
+
+## Table
+
+\begin{table}[!htb]
+\centering
+\caption{Breast cancer hazard ratios for step function model adaptation to closeness coefficient.}
+\resizebox{\textwidth}{!}{\input{t2.tex}}
+\end{table}
+
+
+
+<!-- Convert latex file to png so shows up in html gitbook. -->
+
+```{r, echo=F}
+source("print-png-fcn.R") # bring in the table.png function to convert latex table to a png for placement in html bookdown files
+
+# source: https://stackoverflow.com/questions/9298765/print-latex-table-directly-to-an-image-png-or-other
+
+```
+
+
+```{r, echo=FALSE}
+# convert latex table to png for placement in html file -- table.png function from 'print-png-fcn.R' script. Run as source at top of this script.
+
+# Input the .tex file as a character value instead of an object in this particular case. I updated the table.png function to allow for this.
+
+# NOTE: this function will not work unless you require tools and Hmisc
+
+table.png("t2", "t2-paper", texfile=T) 
+
+
+```
+
+
+<!-- Note: Add png of latex table if html file (gitbook). -->
+
+`r if (knitr:::is_html_output()) '
+![](scripts/t2-paper1.png)
+'`
+
+Adjusted model includes age at menarche, age at first birth, BMI at baseline, a time-dependent menopause variable, and a product term for BMI and menopausal status.

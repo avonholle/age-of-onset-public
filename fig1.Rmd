@@ -1,0 +1,376 @@
+---
+title: "Curves for Rabinowitz covariate over a range of scaling factors"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+## Code
+
+<!-- NOTE: adapted from ../tables/plot-curve-poster-redo.Rmd -->
+
+```{r, include=F}
+# bring in packages
+require(knitr)
+require(haven)
+require(survival)
+require(data.table)
+require(tableone)
+require(ggplot2)
+require(stargazer)
+library(dplyr)
+library(kableExtra)
+```
+
+
+```{r setup-fig1, include=FALSE}
+
+knitr::opts_chunk$set(echo = T, 
+                      eval = T, # need to set to T if you have to re-run (in case of data change)
+                      results = 'markup',
+                      warning = F,
+                      tidy.opts=list(width.cutoff=80),
+                      tidy=F)
+
+```
+
+
+```{r}
+
+# load data from data-handling.Rmd
+load(file="updated-data.RData")
+load( file="ids-include.RData") ## psid.include 
+
+add2 = add1[add1$PSID %in% psid.include, c('PSID', 'FU_BCInvD_Event',
+                                           'PG_MenarcheAge', 'PG_AgeFirstLiveBirth', 'HR_Menopause', 
+                                           'EX_BMI_final',
+                                           'BCSisterOlder',
+                                           'SX_YoungestAgeBC',
+                                           'AgeExact_Baseline',
+                                           'FU_BCInvD_EOFAgeExact',
+                                           'FU_BCInvD_EOFAge',
+                                           'HH_PSID',
+                                           "FU_BCInvD_DxAgeExactMax",
+                                           'FU_BCInvD_DxAgeExactMin',
+                                           'age.firstbirth.cat',
+                                           'postmeno',
+                                           'fu.meno.age',
+                                           'bmi.ctr',
+                                           'p.age.decade',
+                                           'age.proband',
+                                           'age0', 'age1', 'futime'
+                                           )]
+dim(add2) # 39,397
+
+
+colnames(add2)
+names.vars = c('PSID', "event", "age.menarche", "age.firstbirth", "menop.status", "bmi", "older.proband",
+               "age.proband", 'baseline.age', 'FU_BCInvD_EOFAgeExact',
+               'FU_BCInvD_EOFAge', 'HH_PSID', 
+               "FU_BCInvD_DxAgeExactMax",
+               'FU_BCInvD_DxAgeExactMin',
+                                           'age.firstbirth.cat',
+                                           'postmeno',
+               'fu.meno.age',
+                                           'bmi.ctr',
+                                           'p.age.decade',
+                                           'age.proband',
+                                           'age0', 'age1', 'futime')
+colnames(add2) = names.vars
+colnames(add2)
+```
+
+
+
+```{r}
+
+df.both = data.frame(add2)
+
+## Set up data in counting process format 
+#>Essentially, the data are expanded from one record-per-patient to one record-per-interval between each event time, per patient. [@thomasTutorialSurvivalEstimation2014b]
+#This type of data format is possible using the survSplit function in the [survival package](https://cran.r-project.org/web/packages/survival/index.html)
+
+curves = function(df, var.nums) {
+  # df = df.both # debug  
+  df = within(df, {
+    floor.age0 = floor(age0)
+    ceiling.age1 = ceiling(age1)
+  })
+  
+  max = max(df$ceiling.age1); max
+  min = min(df$floor.age0); min
+
+  cut.points <- seq(min, max, by=0.5); cut.points
+
+  surv.long2 = survSplit(Surv(floor.age0, ceiling.age1, event) ~ . ,
+                         data=df,
+                         cut = cut.points,
+                         start = "age0.s",
+                         end = "age1.s")
+  
+  # make Rabinowitz covariate
+  names.vars = paste0("exp.",var.nums)
+  surv.long2[names.vars] = as.data.frame(sapply(var.nums, function(x)
+    {exp(-0.5*(surv.long2$age1.s - surv.long2$age.proband)^2/x)} ))  
+
+  return(surv.long2)
+}
+```
+
+```{r}
+
+varnums = c(200,400,600) # values near the optimal scaling factor, sigma^2, based on output from table2.Rmd
+
+# people with some person-time before proband age of onset
+before.people = df.both[df.both$age0<df.both$age.proband,]$PSID
+
+df.both[df.both$PSID == "00194_100003",]
+
+dfbf1 = data.frame(PSID=1:100,
+                          age0=0,
+                          age1=1:100,
+                          event=1, 
+                          age.proband=50, 
+                          mom.age=50)
+
+dfbf2 = data.frame(PSID=101,
+                          age0=0,
+                          age1=100,
+                          event=0,
+                          age.proband=57, 
+                          mom.age=50)
+
+df.both.fake = rbind.data.frame(dfbf1, dfbf2)
+dim(df.both.fake)
+tail(df.both.fake)
+
+df.both.fake$futime = with(df.both.fake, age1-age0)
+fake.long = curves(df.both.fake,varnums)
+
+# make counting process style data frame for the entire data frame
+tot.df.cp = curves(df.both, varnums)
+tot.df.cp.sub = tot.df.cp[tot.df.cp$PSID %in% before.people[2],]
+names(tot.df.cp.sub)
+```
+
+
+```{r, fig.keep='last'}
+
+# bring in step function from table2.Rmd
+load(file="fig2.RData") #  close.data has closeness coef for unadj analyses
+
+table(fake.long[fake.long$PSID==101,]$exp.600)
+
+# prep data to plot different scaling factors for observed data on one individual
+test.longf2 = reshape2::melt(fake.long[fake.long$PSID==101,
+                            c("PSID", "age0.s", "age1.s",
+                              "exp.200", "exp.400", "exp.600")],
+                 id=c("PSID", "age0.s", "age1.s"))
+test.longf2[1:20,]
+
+# a color blind palette with black tone:
+# Source: http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+# find values for Rabinowitz covariate 4 years out from age of proband onset (57)
+
+test.longf2[test.longf2$age1.s %in% c(57-10, 57+10),]
+
+test.long.covs2 =  test.longf2[test.longf2$age1.s %in% c(57-10, 57+10),]$value
+
+newdat2 = data.frame(x=c(rep(57-10,3), rep(57+10,3)),
+                     y = test.long.covs2[c(1,3,5)],
+                     variable=rep(c("exp.200", "exp.400", 'exp.600'),2))
+
+
+temp <- paste0("beta[1] == ", round(close.data,2)) # source: https://stackoverflow.com/questions/24987158/greek-letters-in-ggplot-annotate
+head(newdat2)
+dim(newdat2)
+
+p2f = ggplot(data = test.longf2[test.longf2$PSID==101,],
+       aes(x=age1.s, y=value,# y=exp(close.data*value), 
+           colour=variable)) + 
+  geom_line(lwd=2) +
+  labs(x="Age time scale (years)",
+       y=expression(paste("Closeness covariate: ", " ", 
+                          Z(t)==exp(0.5(t-d)^2/sigma^2)))
+       #caption="Plot for hypothetical person who survives past age 80, enters study at age 35 and has proband age of onset at 57 years"
+       ) +
+  scale_colour_manual(values=cbbPalette[1:3], 
+                       name = expression(sigma^2),
+                       breaks=c("exp.200", "exp.400", "exp.600"),
+                       labels=c("200", "400", "600")) +
+  geom_vline(xintercept=57, lwd=1, lty=2) +
+  geom_vline(xintercept=c(57-10, 57+10), lty=3) +
+  scale_x_continuous(lim = c(35,80),
+                     breaks = c(seq(35,80, by=5))) +
+  scale_y_continuous(lim = c(0.5,1),
+                     breaks = c(0.5, 0.6, 0.7, round(exp(as.numeric(close.data)),2),
+                                round(test.long.covs2[c(1,3,5)],2), 1)) +
+  theme(text = element_text(size=22),
+        plot.caption = element_text(size=8),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"),
+        legend.text = element_text(colour="black", size = 20),
+        legend.key=element_blank(),
+        legend.key.width = unit(1,"cm"),
+        axis.text.y = element_text(colour=c(rep("black",3), cbbPalette[c(1,2,3)])))  +
+  geom_hline(yintercept=test.long.covs2[1], lty=3) +
+  geom_hline(yintercept=test.long.covs2[5], lty=3) +
+  geom_hline(yintercept=test.long.covs2[3], lty=3) +
+  geom_hline(yintercept=1, lty=2, lwd=1) +
+  geom_point(data=newdat2, aes(x=x, y=y), size=4) + 
+#  annotate("text", x=62, y=0.98, label="Age of proband\nonset=57",
+#           size=4) +
+  annotate("segment", x = 57.2, xend = 57+10, 
+           y = test.long.covs2[6], 
+           yend = test.long.covs2[6], 
+           size=1, alpha=1, arrow=arrow(),
+           color=cbbPalette[3]) +
+  annotate("segment", x = 56.8, xend = 57-10, 
+          y = test.long.covs2[6], 
+           yend = test.long.covs2[6], 
+           size=1, alpha=1, arrow=arrow(),
+           color=cbbPalette[3]) +
+  annotate("segment", x = 56.8, xend = 57-10, 
+           y = test.long.covs2[4], 
+           yend = test.long.covs2[4], 
+           size=1, alpha=1, arrow=arrow(),
+           color=cbbPalette[2]) +
+  annotate("segment", x = 57.2, xend = 57+10, 
+           y = test.long.covs2[4], 
+           yend = test.long.covs2[4], 
+           size=1, alpha=1, arrow=arrow(),
+           color=cbbPalette[2]) +
+  annotate("segment", x = 57.2, xend = 57+10,
+           y = test.long.covs2[2], 
+           yend = test.long.covs2[2], 
+           size=1, alpha=1, arrow=arrow(),
+           color=cbbPalette[1]) +
+  annotate("segment", x = 56.8, xend = 57-10, 
+           y = test.long.covs2[2], 
+           yend = test.long.covs2[2], 
+           size=1, alpha=1, arrow=arrow(),
+           color=cbbPalette[1]) +  
+  annotate("text", x=61.5, y=0.79, label="+10 years",
+           size=4) +
+  annotate("text", x=53, y=0.79, label="-10 years",
+           size=4)#+
+  #annotate("text", x=68, y=exp(round(close.data,2)+0.005), label=temp, size=8, parse=T)
+  
+# Output to file for 04-curve-descriptions.Rmd in bookdown
+p2f
+```
+
+```{r}
+
+ggsave(p2f, dpi=600, file="fig1.png", width=9, height=7)
+
+```
+
+
+## Plot for hypothetical person who survives past age 80, enters study at age 35 and has proband age of onset at 57 years
+
+![Curves for Rabinowitz covariate over a range of scaling factors.](fig1.png)
+
+<!-- NOTE: make a black and white plot here. -->
+
+
+```{r, fig.keep='last'}
+
+p2f.bw = ggplot(data = test.longf2[test.longf2$PSID==101,],
+       aes(x=age1.s, y=value)) +#,# y=exp(close.data*value), 
+           #color=variable)) + 
+  geom_line(aes(linetype=variable), 
+            lwd=2) +
+  labs(x="Age time scale (years)",
+       y=expression(paste("Closeness covariate: ", " ", 
+                          Z(t)==exp(0.5(t-d)^2/sigma^2)))
+       #caption="Plot for hypothetical person who survives past age 80, enters study at age 35 and has proband age of onset at 57 years"
+       ) +
+  # scale_colour_manual(#values=cbbPalette[1:3], 
+  #   values = c(rep("black",3)),
+  #                      name = expression(sigma^2),
+  #                      breaks=c("exp.200", "exp.400", "exp.600"),
+  #                      labels=c("200", "400", "600")) +
+  scale_linetype_manual( values=c(1,2,3),
+                         name = expression(sigma^2),
+                       breaks=c("exp.200", "exp.400", "exp.600"),
+                       labels=c("200", "400", "600")) +
+  geom_vline(xintercept=57, lwd=1, lty=2) +
+  geom_vline(xintercept=c(57-10, 57+10), lty=3) +
+  scale_x_continuous(lim = c(35,80),
+                     breaks = c(seq(35,80, by=5))) +
+  scale_y_continuous(lim = c(0.5,1),
+                     breaks = c(0.5, 0.6, 0.7, round(exp(as.numeric(close.data)),2),
+                                round(test.long.covs2[c(1,3,5)],2), 1)) +
+  theme(text = element_text(size=22),
+        plot.caption = element_text(size=8),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"),
+        legend.text = element_text(colour="black", size = 20),
+        legend.key=element_blank(),
+        legend.key.width = unit(1,"cm"),
+        axis.text.y = element_text(colour=c(rep("black",3), "black")),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 18))+#cbbPalette[c(1,2,3)])))  +
+  geom_hline(yintercept=test.long.covs2[1], lty=3) +
+  geom_hline(yintercept=test.long.covs2[5], lty=3) +
+  geom_hline(yintercept=test.long.covs2[3], lty=3) +
+  geom_hline(yintercept=1, lty=2, lwd=1) +
+  geom_point(data=newdat2, aes(x=x, y=y), size=4) + 
+#  annotate("text", x=62, y=0.98, label="Age of proband\nonset=57",
+#           size=4) +
+  annotate("segment", x = 57.2, xend = 57+10, 
+           y = test.long.covs2[6], 
+           yend = test.long.covs2[6], 
+           size=1, alpha=1, arrow=arrow(),
+           color="black") +#cbbPalette[3]) +
+  annotate("segment", x = 56.8, xend = 57-10, 
+          y = test.long.covs2[6], 
+           yend = test.long.covs2[6], 
+           size=1, alpha=1, arrow=arrow(),
+           color="black") +#cbbPalette[3]) +
+  annotate("segment", x = 56.8, xend = 57-10, 
+           y = test.long.covs2[4], 
+           yend = test.long.covs2[4], 
+           size=1, alpha=1, arrow=arrow(),
+           color="black")+#cbbPalette[2]) +
+  annotate("segment", x = 57.2, xend = 57+10, 
+           y = test.long.covs2[4], 
+           yend = test.long.covs2[4], 
+           size=1, alpha=1, arrow=arrow(),
+           color="black")+#cbbPalette[2]) +
+  annotate("segment", x = 57.2, xend = 57+10,
+           y = test.long.covs2[2], 
+           yend = test.long.covs2[2], 
+           size=1, alpha=1, arrow=arrow(),
+           color="black")+#cbbPalette[1]) +
+  annotate("segment", x = 56.8, xend = 57-10, 
+           y = test.long.covs2[2], 
+           yend = test.long.covs2[2], 
+           size=1, alpha=1, arrow=arrow(),
+           color="black")+#cbbPalette[1]) +  
+  annotate("text", x=61.5, y=0.79, label="+10 years",
+           size=4) +
+  annotate("text", x=53, y=0.79, label="-10 years",
+           size=4) +
+  theme(legend.position = "bottom", legend.box = "horizontal",
+        legend.key.width = unit(4,"line")) +
+  guides(color = guide_legend(nrow = 1))#+
+  #annotate("text", x=68, y=exp(round(close.data,2)+0.005), label=temp, size=8, parse=T)
+  
+# Output to file for 04-curve-descriptions.Rmd in bookdown
+p2f.bw
+
+```
+
+```{r}
+
+ggsave(p2f.bw, dpi=600, file="fig1bw.png", width=9, height=7)
+
+```

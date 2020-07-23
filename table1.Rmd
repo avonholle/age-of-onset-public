@@ -1,0 +1,299 @@
+---
+title: 'Table 1: Descriptive statistics'
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup-table1, include=FALSE}
+knitr::opts_chunk$set(echo = T, 
+                      eval = T, # change to T if you want to re-run w/ new data
+                      results = 'markup',
+                      warning = F)
+
+```
+
+
+```{r, include=F, eval=TRUE}
+# bring in packages
+require(knitr)
+require(haven)
+require(survival)
+require(data.table)
+require(tableone)
+require(ggplot2)
+require(kableExtra)
+```
+
+## Code
+
+```{r}
+
+# load data from data-handling.Rmd
+load(file="updated-data.RData") # load add1 data frame 
+load(file="ids-include.RData") ## psid.include 
+load(file="older-info.RData") # older.proband.info (has older.proband2 variable)
+
+length(unique(psid.include))
+length(psid.include)
+add2 = add1[add1$PSID %in% psid.include, c('PSID', 'FU_BCInvD_Event',
+                                           'PG_MenarcheAge', 'PG_AgeFirstLiveBirth', 'HR_Menopause', 
+                                           'EX_BMI_final',
+                                           'BCSisterOlder',
+                                           'AgeExact_Baseline', 'FU_BCInvD_MenopauseAge',
+                                           'FU_BCInvD_MenopauseAgeExact',
+                                           'age.firstbirth.cat',
+                                           'postmeno',
+                                           'bmi.ctr',
+                                           'p.age.decade',
+                                           'age.proband')]
+dim(add2)
+
+names.vars = c('PSID', "event", "age.menarche", 
+               "age.firstbirth", "menop.status", 
+               "bmi", "BCSisterOlder",
+               'baseline.age', 
+               'fu.meno.age', 'fu.meno.age.exact',
+               'age.firstbirth.cat',
+                                           'postmeno',
+                                           'bmi.ctr',
+                                           'p.age.decade',
+                                           'age.proband')
+
+summary(add2)
+colnames(add2) = names.vars
+
+summary(add2$fu.meno.age.exact)
+summary(add2$fu.meno.age)
+
+  # Revised baseline menopause status
+add2$menop.status.rev = add2$postmeno
+sum(table(add2$menop.status.rev))
+
+load(file="older-info.RData") # has older.proband.info with older.proband variable
+
+
+```
+
+
+```{r}
+
+add2 = merge(add2, older.proband.info, by="PSID")
+dim(add2)
+summary(add2$older.proband)
+
+table(add2$menop.status) - table(add2$menop.status.rev)
+
+```
+
+
+
+```{r}
+
+cont.vars = c("age.menarche", "bmi", 
+              "baseline.age", "age.proband")
+
+cat.vars = c('older.proband', "menop.status.rev", "age.firstbirth.cat", "p.age.decade")
+
+# re-order age at first birth categories. 
+# original order meant for regression tables
+levels(add2$age.firstbirth.cat)
+add2$age.firstbirth.cat2 = factor(add2$age.firstbirth.cat,
+                           levels = c("[-1,0]",
+                                      "(0,20]",
+                                      "(20,24]",
+                                      "(24,29]",
+                                      "(29,55]"))
+
+```
+
+
+```{r}
+
+t1 = CreateTableOne(vars = c(cont.vars, cat.vars), 
+                        data=add2,
+                        factorVars = c(cat.vars),
+                        test=FALSE)
+
+n1 = sapply(add2[c(cont.vars, cat.vars)], function(x) sum(!(is.na(x))))
+n1
+
+n1.miss = sapply(add2[c(cont.vars, cat.vars)], function(x) sum((is.na(x))))
+n1.miss
+
+t1.mat <- print(t1, nonnormal = cont.vars,
+                quote = FALSE, noSpaces = TRUE, printToggle = FALSE,
+                catDigits=0, contDigits=0)
+
+t1.mat
+
+tot.mat = dim(t1.mat)[1]
+
+t1.mat = cbind(t1.mat, c(NA, n1.miss[1:5], rep(NA, tot.mat-6)))
+t1.mat
+```
+
+
+```{r}
+
+# for poster
+t1.p = CreateTableOne(vars = c(cont.vars, cat.vars), 
+                        data=add2,
+                        factorVars = c(cat.vars),
+                        test=FALSE)
+
+t1.mat.p <- print(t1.p, 
+                  format="p",
+                quote = FALSE, noSpaces = TRUE, printToggle = FALSE,
+                                    catDigits=0, contDigits=0)
+
+t1.mat.p
+
+```
+
+```{r}
+# create stratified table
+
+t1.strat = CreateTableOne(vars = c( cont.vars, cat.vars), 
+                        data=add2,
+                        factorVars = c(cat.vars),
+                        test=FALSE,
+                        strata='older.proband')
+
+t1.strat.2 <- print(t1.strat, nonnormal = cont.vars,
+                    catDigits=0, contDigits=0,
+                    quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+
+t1.strat.2
+
+```
+
+
+```{r}
+
+# create stratified table for poster
+
+t1.strat.p = CreateTableOne(vars = c( cont.vars, cat.vars), 
+                        data=add2,
+                        factorVars = c(cat.vars),
+                        test=FALSE,
+                        strata='older.proband')
+
+t1.strat.2.p <- print(t1.strat.p,# nonnormal = cont.vars,
+                      format="p",
+                quote = FALSE, noSpaces = TRUE, printToggle = FALSE,
+                contDigits=1)
+
+t1.strat.2.p
+
+```
+
+
+```{r}
+# combine stratified and total
+
+tot = cbind(t1.strat.2, t1.mat); tot
+tot.p = cbind(t1.strat.2.p, t1.mat.p)
+
+```
+
+
+```{r}
+
+t.tot = as.data.frame(tot)
+
+t.tot$vars = c("Sample size (no.)",
+               "Age at menarche",
+               "BMI (kg/m2)",
+               "Participant age at baseline",
+               "Proband age at diagnosis",
+               "Participant older than proband no. (\\%)",
+               "Postmenopausal at baseline no. (\\%)",
+               "Age at first birth, no. (\\%)",
+               "  Nulliparous",
+               "  $\\leq 20$",
+               "  21-24",
+               "  25-29",
+               "  30-55",
+               "Proband age of onset no. (\\%)",
+               "   <40",
+               "   40-49",
+               "   50-59",
+               "   60-69",
+               "   $\\geq$ 70 years")
+t.tot
+
+t.tot.p = as.data.frame(tot.p)
+t.tot.p$vars = c("n",
+               "Age, menarche",
+               "BMI",
+               "Participant baseline age",
+               "Proband age at diagnosis",
+               "Menopause status at baseline",
+               "Participant older than proband",
+               "Age at first birth, n(\\%)",
+               "  Nulliparous",
+               "  (0,20]",
+               "  (20,24]",
+               "  (24,29]",
+               "  (29,55]",
+               "Proband age of onset (\\%)",
+               "   <40",
+               "   40-49",
+               "   50-59",
+               "   60-69",
+               "   >70 years")
+
+# see https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html
+```
+
+
+
+```{r, results='markup'}
+
+dat = t.tot[c(5,1:3)]
+#names(dat)[5]="Missing"
+dat <- sapply(dat, as.character) # since your values are `factor`
+dat[is.na(dat)] = " "
+
+c2 = paste0("Total (n=", dat[1,2], ")")
+
+
+dat.p = t.tot.p[c(4,1:3)]
+
+dat.p <- sapply(dat.p, as.character) # since your values are `factor`
+dat.p[is.na(dat.p)] = " "
+
+dat.p
+```
+
+```{r}
+
+save(dat, file="table1.RData")
+
+```
+
+## Table 
+
+```{r,  results='markup', eval=T}
+load("table1.RData")
+
+kable(dat, 
+      row.names=F,
+      col.names = c(" ", "Younger", "Older", "Total"),
+      booktabs=T,
+      escape=F,
+      linesep = "",
+      align=c('l', rep('c', 2), 'l')) %>%
+  add_header_above(c("Variable$^a$" = 1, "Proband age relative to participant age"=2, " "=1),  
+                   escape=F) %>%
+  kable_styling(latex_options = "striped", full_width = F) %>%
+  add_indent(c(9:13, 15:19 )) %>%
+  column_spec(1, width = "10em") %>%
+  column_spec(2:3, width = "10em") %>%
+  footnote(alphabet = c( "All age variables are in year units and continuous variables are characterized by median [interquartile range]."),
+           general = "The number of missing values for age at menarche, BMI, and age at first birth are 37, 11, and 63, respectively. ", threeparttable = T)
+
+```
+

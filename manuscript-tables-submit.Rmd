@@ -1,0 +1,233 @@
+---
+output:
+  pdf_document:
+    includes:
+      in_header: preamble-latex-noxcolor.tex
+    latex_engine: pdflatex
+    keep_tex: true
+    number_sections: yes
+    toc: no
+    fig_caption: true
+  word_document:
+    toc: yes
+    toc_depth: 1
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: '1'
+urlcolor: blue
+linkcolor: magenta
+citecolor: red
+geometry: margin=1.25cm
+graphics: yes
+editor_options: 
+  chunk_output_type: console
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, 
+                      eval = F,
+                      results = 'hide', 
+                      warning = F,
+                      message = F,
+                      fig.pos = 'H',
+                      comment=F,
+                      table.placement = "H")
+
+```
+
+
+```{r, eval=T}
+require(kableExtra)
+require(dplyr)
+require(tools) # need tools and Hmisc to run function in print-png-fcn.R below.
+require(Hmisc)
+require(knitr)
+require(hexbin)
+# source: https://github.com/rstudio/bookdown/issues/440
+require(webshot)
+require(ggplot2)
+require(ggpubr)
+
+```
+
+
+```{r, echo=F}
+source("print-png-fcn.R") # bring in the table.png function to convert latex table to a png for placement in html bookdown files
+
+# source: https://stackoverflow.com/questions/9298765/print-latex-table-directly-to-an-image-png-or-other
+
+```
+
+
+<!-- From table1.Rmd -->
+
+<!-- # Tables and figures for manuscript: Familial aggregation of age of onset for breast cancer risk -->
+
+
+```{r, results='asis', eval=T}
+
+load(file="table1.RData") # has dat data frame from table1.Rmd
+
+# for escaping latex characters in table see https://stackoverflow.com/questions/52070416/kable-kableextra-add-superscript-to-group-labels-in-group-rows
+kable(dat, 
+      row.names=F,
+      col.names = c(" ", "Younger", "Older", "Total"),
+      booktabs=T,
+      escape=F,
+      linesep = "",
+      align=c('l', rep('c', 2), 'l'),
+      caption="Baseline descriptive statistics by older proband status") %>%
+  add_header_above(c("Characteristic$^{*\\\\dagger}$" = 1, "Proband age relative to participant age"=2, " "=1),  
+                   escape=F) %>%
+  kable_styling(latex_options = "striped", full_width = F) %>%
+  add_indent(c(9:13, 15:19 )) %>%
+  column_spec(1, width = "10em") %>%
+  column_spec(2:3, width = "10em") %>%
+  footnote(symbol = c( "All age variables are in year units and continuous variables are characterized by median [interquartile range].",
+                       "The number of missing values for age at menarche, BMI, and age at first birth are 37, 11, and 63, respectively. "),
+           threeparttable = T)
+
+write.csv(dat, file="t1-dat.csv")
+
+```
+
+\clearpage
+\newpage
+
+<!-- Source: table2.Rmd -->
+
+\blandscape
+
+\begin{table}[!htb]
+\centering
+\caption{Breast cancer hazard ratios (and 95\% confidence intervals) for step function and closeness covariate models}
+\input{t2.tex}
+\end{table}
+
+
+$^*$ The null model is a model fit without the closeness covariate.
+
+$\dagger$ The adjusted models included age at menarche, age at first live birth, time-dependent menopause status, BMI and a product term between BMI and menopause status.
+
+$\ddagger$ 477 = the scaling factor, $\sigma^2$, estimated by maximum likelihood.
+
+\elandscape
+
+<!-- Convert latex file to png so shows up in html gitbook. -->
+
+```{r}
+# Input the .tex file as a character value instead of an object in this particular case. I updated the table.png function to allow for this.
+
+table.png("t2.tex", "t2-paper", texfile=T) 
+# convert latex table to png for placement in html file -- table.png function from 'print-png-fcn.R' script. Run as source at top of this script.
+
+```
+
+<!-- Note: Add png of latex table if html file (gitbook). -->
+
+`r if (knitr:::is_html_output()) '
+![](t2-paper1.png)
+'`
+
+
+\blandscape
+
+<!-- From afig1.Rmd -->
+<!-- ### Heatmaps of proband dx age by participant entry age -->
+
+
+![Counts of participants by participant age of entry and proband age of diagnosis](afig1-bw.png)
+
+The solid diagonal lines correspond to equality.
+
+<!-- Source: fig1.Rmd -->
+
+
+![Our Cox model includes a time-dependent covariate, which is exemplified here for a hypothetical participant, whose sister was diagnosed at age 57 (=d). This covariate, Z(t) = exp(-0.5*((t - d )/$\sigma)^2$), is 1 when the age of the i$^{th}$ participant, t, is the same as the proband age of diagnosis, d, and allows the relative hazard in a Cox model to increase up to d then smoothly decrease for t beyond that. The “scaling factor”, $\sigma$, determines the steepness of ascent and descent and is itself a parameter to be fitted to the data. The coefficient for Z(t) in a Cox regression model sets the maximum ln(hazard ratio) in relation to proximity to the proband’s age at diagnosis.](fig1bw.png)
+
+
+<!-- Source: from fig2.Rmd  -->
+
+\vspace*{-15mm}
+
+![Estimated breast cancer hazard ratios by difference between participant's age and proband age of diagnosis for three fitted models. The dotted line shows the fitted curve for the hazard ratio based on the covariate from Figure 2. The solid line shows a step function of the hazard ratio based on categories of closeness of participant's age to the proband's age at diagnosis. The dash-dotted line shows a fit based on a cubic spline of the age difference on the horizontal axis.](fig2-ms-bw.png)
+
+\vspace*{-2mm}
+Note: The step function and the spline provide meaningful shape estimates for the functional contribution to the hazard, but are not fully identifiable under a Cox model because the baseline, age-dependent hazard function can absorb any additive constant. Thus, the contribution of the spline and the step function for nearness must be considered to be identified up to an additive constant. For convenience of display in this figure, we have arbitrarily scaled the hazard ratios both to be 1.1 for the youngest interval that is an approximation of the average relative hazard.
+
+
+\elandscape
+
+<div id="refs"></div>
+
+\beginsupplement
+
+
+<!-- From data-handling.Rmd -->
+
+![Participant flow diagram](flow-redo.png)
+
+
+\clearpage
+\newpage
+
+
+<!-- From supp-table-stage-dcis.Rmd -->
+
+```{r, eval=T}
+load(file="supp1.RData") # has t1., t2.
+gc()
+```
+
+
+```{r, results="asis", eval=T, include=T}
+
+kable(t1.[c("diff.year2", "Invasive", "InSitu", "prob.inv", "prob.insitu")],
+      booktabs=T,
+      escape=F,
+      format="latex",
+      col.names = c("$\\lvert a-a_d \\rvert^a$", rep(c("Invasive", "In Situ"), 2)),
+      caption = "DCIS and invasive status by deciles of differences between proband and participant age of diagnosis.",
+      digits=2) %>%
+  kable_styling(full_width = F) %>%
+#  column_spec(1:5, width = "5em") %>%
+  add_header_above(c(" "=1, "Frequencies$^b$" = 2, "Proportion" = 2), escape=F) %>%
+  footnote(alphabet = c("$a_d$ is age of diagnosis for probands and $a$ is the time scale in participant chronological age.",
+                        paste0("Cochran Armitage trend test p-value = ", round(test.vals.1$p.value,2))),
+           escape=F,
+           threeparttable = T)
+
+```
+
+
+\clearpage
+\newpage
+
+
+
+```{r, results="asis", eval=T, include=T}
+
+kable(t2.[,c("diff.year2", "0", "I", "II", "III", "IV", "prob.0", "prob.I", "prob.II", "prob.III", "prob.IV")],
+      booktabs=T,
+      escape=F,
+      format="latex",
+      col.names = c("$\\lvert a-a_d \\rvert^a$", rep(c("0", "I", "II", "III", "IV"), 2)),
+      caption = "Breast cancer stage by deciles of differences between proband and participant age of diagnosis.",
+      digits=2) %>%
+  kable_styling(full_width = F) %>%
+#  column_spec(1:5, width = "5em") %>%
+  add_header_above(c(" "=1, "Frequencies$^b$" = 5, "Proportion" = 5), escape=F) %>%
+  footnote(alphabet = c("$a_d$ is age at diagnosis for probands and $a$ is the time scale in participant chronological age.",
+                        paste0("Cochran Armitage trend test p-values for stage 0 vs I (",
+                               round(val2.1$p.value, 2), ")",
+                               ", vs II (", round(val2.2$p.value, 2), ")",
+                               ", vs III (", round(val2.3$p.value, 2), ")",
+                               ", vs IV (", round(val2.4$p.value, 2), ")")),
+           general = c(paste0(miss.stage, " are missing stage, and ", cannot.stage, " cases were stage X (cannot stage)")),
+           escape=F,
+           threeparttable = T)
+
+
+```
