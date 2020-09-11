@@ -86,7 +86,7 @@ kable(dat,
   column_spec(1, width = "10em") %>%
   column_spec(2:3, width = "10em") %>%
   footnote(symbol = c( "All age variables are in year units and continuous variables are characterized by median [interquartile range].",
-                       "The number of missing values for age at menarche, BMI, and age at first birth are 37, 11, and 63, respectively. "),
+                       "The number of missing values for age at menarche, body mass index, and age at first birth are 37, 11, and 63, respectively. "),
            threeparttable = T)
 
 write.csv(dat, file="t1-dat.csv")
@@ -106,12 +106,13 @@ write.csv(dat, file="t1-dat.csv")
 \input{t2.tex}
 \end{table}
 
+$^a$ *t* is the participant’s time-dependent age, and *d* is the affected sister's age at diagnosis
 
-$^*$ The null model is a model fit without the closeness covariate.
+$^b$ The null model is a model fit without the closeness covariate.
 
-$\dagger$ The adjusted models included age at menarche, age at first live birth, time-dependent menopause status, BMI and a product term between BMI and menopause status.
+$^c$ The adjusted models included age at menarche, age at first live birth, time-dependent menopause status, body mass index and a product term between body mass index and menopause status.
 
-$\ddagger$ 477 = the scaling factor, $\sigma^2$, estimated by maximum likelihood.
+$^d$ 477 = the scaling factor, $\sigma^2$, estimated by maximum likelihood.
 
 \elandscape
 
@@ -189,7 +190,7 @@ kable(t1.[c("diff.year2", "Invasive", "InSitu", "prob.inv", "prob.insitu")],
       escape=F,
       format="latex",
       col.names = c("$\\lvert a-a_d \\rvert^a$", rep(c("Invasive", "In Situ"), 2)),
-      caption = "DCIS and invasive status by deciles of differences between proband and participant age of diagnosis.",
+      caption = "Ductal carcinoma in situ (DCIS) and invasive status by deciles of differences between proband and participant age of diagnosis.",
       digits=2) %>%
   kable_styling(full_width = F) %>%
 #  column_spec(1:5, width = "5em") %>%

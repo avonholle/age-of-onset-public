@@ -449,7 +449,7 @@ s1b = stargazer(all.models,
                  ci.custom = confint.c.all,
                  digits=2,
                  dep.var.labels = c(""),
-                 column.labels = c("Null model*", "Categorical", "Closeness coefficient"),
+                 column.labels = c("Null model$^b$", "Categorical", "Closeness coefficient"),
                  column.separate = c(2,2,2),
                  keep.stat=c("n", "ll", "lr"),
                  ci=T,
@@ -465,7 +465,7 @@ s1b = stargazer(all.models,
                                       " >13 to 16 years",
                                       " >16 to 19 years",
                                       " >19 to 51 years",
-                                      " $exp(-0.5 (t-d)^2 / 477)\\ddagger$ "
+                                      " $exp(-0.5 (t-d)^2 / 477)^d$ "
                                       ),
                  model.numbers=F, 
                  dep.var.caption = "",
@@ -502,7 +502,7 @@ s1b.t = stargazer(all.models,
                                       " <13 to 16",
                                       " <16 to 19",
                                       " <19 to 51",
-                                      " $exp(-0.5 (t-d)^2 / 477)\\ddagger$ "
+                                      " $exp(-0.5 (t-d)^2 / 477)^d$ "
                                       ),
                  model.numbers=F, 
                  dep.var.caption = "",
@@ -517,8 +517,8 @@ cat(s1b.t, sep='\n', file="t2-dat.txt")
 # add some headers
 s1b.headers = star_insert_row(s1b,
                              c(#"\\\\ Other covariates \\\\ \\hline",
-                               " & unadjusted & adjusted$\\dagger$ & unadjusted & adjusted$\\dagger$ & unadjusted & adjusted$\\dagger$ \\\\",
-                               "\\\\ Step function for $t-d$ (years) \\\\ \\hline",
+                               " & unadjusted & adjusted$^c$ & unadjusted & adjusted$^c$ & unadjusted & adjusted$^c$ \\\\",
+                               "\\\\ Step function for $t-d$ (years)$^a$ \\\\ \\hline",
                                " > -2 to 2 & \\multicolumn{2}{c}{ }  & \\multicolumn{2}{c}{Referent}  & \\multicolumn{2}{c}{  }   \\\\ ",
                                "\\\\ Closeness covariate \\\\ \\hline"),
                              insert.after = c(6, 7, 9, 16))
